@@ -9,6 +9,7 @@ interface ImageUploadProps {
   value: string
   onChange: (value: string) => void
   label?: string
+  className?: string; // <-- THÊM DÒNG NÀY
 }
 
 export function ImageUpload({ value, onChange, label = "Tải lên hình ảnh" }: ImageUploadProps) {

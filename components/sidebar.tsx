@@ -2,134 +2,117 @@
 
 import { useState } from "react";
 import {
-  LayoutDashboard,
-  Package,
-  Tag,
-  Layers,
-  ShoppingCart,
-  Users,
-  UserCheck,
-  Activity,
-  BarChart3,
-  Menu,
-  X,
-  // --- THÊM 1: Import Icons mới ---
-  TicketPercent, // Icon cho Coupon
-  Percent,       // Icon cho Khuyến mãi %
-  LogOut,        // Icon Đăng xuất (nếu chưa có)
-  Settings       // Icon Hồ sơ (nếu chưa có)
+  LayoutDashboard, Package, Tag, Layers, ShoppingCart, Users,
+  UserCheck, Activity, BarChart3, Menu, X, TicketPercent, 
+  Percent, LogOut, Settings, LayoutList, Building 
 } from "lucide-react";
-// --- THÊM 2: Import store xác thực ---
-import { useAuthStore } from "@/lib/authStore"; // Thay vì useStore
+import { useAuthStore } from "@/lib/authStore";
 
 interface SidebarProps {
-  currentPage: string; // Trang hiện tại đang active
-  onPageChange: (page: string) => void; // Hàm callback để đổi trang
+  currentPage: string;
+  onPageChange: (page: string) => void;
 }
 
 export function Sidebar({ currentPage, onPageChange }: SidebarProps) {
-  const [isOpen, setIsOpen] = useState(false); // State quản lý đóng/mở sidebar trên mobile
-  // --- THÊM 3: Lấy state từ useAuthStore ---
-  const { user, logout } = useAuthStore(); // Lấy user và hàm logout
+  const [isOpen, setIsOpen] = useState(false);
+  const { user, logout } = useAuthStore(); // Dùng store (API)
 
-  // --- THÊM 4: Cập nhật danh sách menu ---
+  // --- Danh sách menu đã cập nhật ---
   const menuItems = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { id: "products", label: "Sản phẩm", icon: Package }, // Rút gọn tên
-    { id: "attributes", label: "Thuộc tính", icon: Tag }, // Rút gọn tên
-    { id: "variants", label: "Biến thể", icon: Layers }, // Rút gọn tên
-    { id: "orders", label: "Đơn hàng", icon: ShoppingCart }, // Rút gọn tên
-    // --- Mục mới ---
-    { id: "coupons", label: "Coupons", icon: TicketPercent }, // Mục Coupon
-    { id: "promotions", label: "Khuyến mãi (%)", icon: Percent }, // Mục Khuyến mãi %
-    // --- (Xóa mục "promotions" cũ) ---
-    { id: "customers", label: "Khách hàng", icon: Users }, // Rút gọn tên
-    { id: "employees", label: "Nhân viên", icon: UserCheck }, // Rút gọn tên
-    { id: "activity", label: "Hoạt động NV", icon: Activity }, // Rút gọn tên
-    { id: "analytics", label: "Thống kê", icon: BarChart3 },
+    { id: "products", label: "Sản phẩm", icon: Package },
+    { id: "categories", label: "Danh mục", icon: LayoutList },
+    { id: "brands", label: "Thương hiệu", icon: Building },
+    { id: "attributes", label: "Thuộc tính", icon: Tag },
+    { id: "variants", label: "Biến thể", icon: Layers },
+    { id: "orders", label: "Đơn hàng", icon: ShoppingCart },
+    { id: "coupons", label: "Coupons", icon: TicketPercent },
+    { id: "promotions", label: "Khuyến mãi (%)", icon: Percent }, // Key đúng
+    // (Phần lọc admin/staff)
+    { id: "customers", label: "Khách hàng", icon: Users, adminOnly: true },
+    { id: "employees", label: "Nhân viên", icon: UserCheck, adminOnly: true },
+    { id: "activity", label: "Hoạt động NV", icon: Activity, adminOnly: true },
+    { id: "analytics", label: "Thống kê", icon: BarChart3, adminOnly: true },
   ];
 
-  // Hàm xử lý đăng xuất (không cần thay đổi nhiều)
+  // Lọc menu dựa trên quyền (ADMIN/STAFF)
+  const filteredMenuItems = menuItems.filter(item => {
+      if (!item.adminOnly) return true;
+      return user?.roles.includes('ADMIN');
+  });
+
   const handleLogout = () => {
     logout();
-    // Có thể thêm chuyển hướng về trang login ở đây nếu cần
   };
 
   return (
     <>
-      {/* Nút Hamburger/X cho mobile */}
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="fixed top-3 left-3 z-50 lg:hidden p-1 rounded-md bg-background/50 backdrop-blur-sm" // Style nút
-        aria-label={isOpen ? "Đóng menu" : "Mở menu"}
-      >
-        {isOpen ? <X size={22} /> : <Menu size={22} />}
+      {/* Nút Hamburger/X cho mobile (CSS Gốc) */}
+      <button onClick={() => setIsOpen(!isOpen)} className="fixed top-4 left-4 z-50 lg:hidden">
+        {isOpen ? <X size={24} /> : <Menu size={24} />}
       </button>
 
-      {/* Sidebar chính */}
+      {/* --- SỬA LẠI CSS <aside> CHO GIỐNG GỐC --- */}
       <aside
         className={`${
-          isOpen ? "translate-x-0 shadow-xl" : "-translate-x-full" // Thêm shadow khi mở
-        } fixed lg:sticky lg:top-0 lg:translate-x-0 transition-transform duration-300 ease-in-out w-60 h-screen bg-card border-r border-border overflow-y-auto z-40 flex flex-col`} // Giảm width, đổi màu nền
+          isOpen ? "translate-x-0" : "-translate-x-full"
+        } fixed lg:static lg:translate-x-0 transition-transform duration-300 w-64 h-screen bg-card border-r border-border overflow-y-auto z-40 flex flex-col`}
+        // Đã sửa:
+        // 1. lg:static (Quan trọng nhất - Giống file gốc)
+        // 2. w-64 (Rộng 256px - Giống file gốc)
+        // 3. bg-card, border-border (Màu theme của bạn - Giống file gốc)
       >
-        {/* Logo/Header Sidebar */}
-        <div className="p-4 border-b border-border">
-          <h1 className="text-xl font-bold text-foreground">Admin Panel</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">Quản lý cửa hàng</p>
+        {/* Logo/Header Sidebar (CSS Gốc: p-6) */}
+        <div className="p-6 border-b border-border">
+          <h1 className="text-2xl font-bold text-foreground">Admin</h1>
+          <p className="text-sm text-muted-foreground">Quản lý cửa hàng</p>
         </div>
 
-        {/* Danh sách Menu */}
-        <nav className="flex-1 space-y-1 p-3"> {/* Giảm space, padding */}
-          {menuItems.map((item) => {
+        {/* Danh sách Menu (CSS Gốc: px-4, py-3) */}
+        <nav className="space-y-2 px-4 flex-1 mt-4"> {/* Thêm mt-4 */}
+          {filteredMenuItems.map((item) => { // Dùng filteredMenuItems
             const Icon = item.icon;
-            const isActive = currentPage === item.id; // Kiểm tra active
+            const isActive = currentPage === item.id; 
 
             return (
               <button
                 key={item.id}
                 onClick={() => {
-                  onPageChange(item.id); // Gọi callback đổi trang
-                  if (window.innerWidth < 1024) setIsOpen(false); // Tự đóng sidebar trên mobile khi chọn
+                  onPageChange(item.id); 
+                  if (window.innerWidth < 1024) setIsOpen(false); 
                 }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors text-sm font-medium ${ // Kích thước, font
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors text-sm font-medium ${ // Giữ px-4, py-3
                   isActive
-                    ? "bg-primary text-primary-foreground" // Style active
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground" // Style không active
+                    ? "bg-primary text-primary-foreground" 
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground" 
                 }`}
-                title={item.label} // Tooltip
+                title={item.label}
               >
-                <Icon size={18} className="shrink-0"/> {/* Icon nhỏ hơn, không co lại */}
+                <Icon size={20} className="shrink-0"/>
                 <span>{item.label}</span>
               </button>
             );
           })}
         </nav>
 
-        {/* Thông tin User & Nút Logout (đặt cuối sidebar) */}
-        <div className="p-3 border-t border-border mt-auto"> {/* Đẩy xuống cuối */}
-          <div className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-muted transition-colors"> {/* Thêm hover */}
+        {/* Thông tin User (CSS Gốc) */}
+        <div className="p-4 border-t border-border">
+          <div className="flex items-center gap-3 px-3 py-2 rounded-lg">
             <img
-              src={user?.avatar || "/placeholder.svg"} // Lấy avatar từ store mới
-              alt={user?.name || "User"}
-              className="w-8 h-8 rounded-full object-cover border" // Kích thước nhỏ hơn, thêm border
+              src={user?.avatar || "/placeholder.svg"} // Dùng 'user'
+              alt={user?.name || "User"} // Dùng 'user'
+              className="w-10 h-10 rounded-full object-cover"
             />
-            <div className="flex-1 text-left min-w-0"> {/* Chống tràn text */}
-              <p className="text-sm font-medium text-foreground truncate">{user?.name}</p>
+            <div className="flex-1 text-left min-w-0">
+              <p className="text-sm font-medium text-foreground">{user?.name}</p>
               <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
             </div>
-            {/* Có thể thêm nút cài đặt hoặc logout trực tiếp ở đây */}
-             {/* <Button variant="ghost" size="icon" className="w-8 h-8" onClick={() => onPageChange('profile')} title="Hồ sơ">
-                <Settings size={16} />
-             </Button>
-             <Button variant="ghost" size="icon" className="w-8 h-8 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/50" onClick={handleLogout} title="Đăng xuất">
-                 <LogOut size={16} />
-             </Button> */}
           </div>
         </div>
       </aside>
 
-      {/* Lớp phủ nền mờ khi sidebar mở trên mobile */}
-      {isOpen && <div className="fixed inset-0 bg-black/60 lg:hidden z-30" onClick={() => setIsOpen(false)} />}
+      {/* Lớp phủ nền mờ (CSS Gốc) */}
+      {isOpen && <div className="fixed inset-0 bg-black/50 lg:hidden z-30" onClick={() => setIsOpen(false)} />}
     </>
   );
 }
