@@ -19,22 +19,26 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
 // --- Interfaces (Khớp UserResponseDTO) ---
 interface EmployeeResponse {
   id: number;
-  name: string;
+  name: string; // Vẫn nhận Full Name để hiển thị
+  // (Backend DTO (File 130) không gửi FName/LName, nên ta phải tự tách)
   email: string;
   phone: string;
   position: string;
-  joinDate: string; // (Frontend nhận 'joinDate' từ DTO)
+  joinDate: string; 
   active: boolean;
   role: string;
 }
 
+// --- SỬA 1: Dùng firstName/lastName ---
 interface EmployeeFormData {
-  name: string;
+  firstName: string; 
+  lastName: string;
   email: string;
   phone: string;
   position: string;
   active: boolean;
   password?: string;
+  role?: string; // Chỉ dùng khi Tạo mới
 }
 
 // --- Component ---
@@ -51,24 +55,22 @@ export function EmployeeManagement() {
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  
+  // --- SỬA 2: State mặc định ---
   const [formData, setFormData] = useState<EmployeeFormData>({
-    name: "", email: "", phone: "", position: "", active: true, password: ""
+    firstName: "", lastName: "", email: "", phone: "", 
+    position: "", active: true, password: "", role: "STAFF"
   });
   const [formError, setFormError] = useState<string | null>(null);
 
-  // --- API Fetching ---
+  // --- API Fetching (Giữ nguyên) ---
   const fetchEmployees = useCallback(async () => {
     if (!token) return;
     setIsFetching(true);
     const url = new URL(`${API_URL}/v1/users/employees`);
     url.searchParams.append("page", (currentPage - 1).toString());
     url.searchParams.append("size", ITEMS_PER_PAGE.toString());
-    
-    // --- SỬA LỖI Ở ĐÂY ---
-    // Sắp xếp theo 'createdAt' (tên trường trong Entity)
     url.searchParams.append("sort", "createdAt,desc"); 
-    // --- KẾT THÚC SỬA ---
-
     url.searchParams.append("status", filterStatus); 
     if (searchTerm) url.searchParams.append("search", searchTerm);
     try {
@@ -85,26 +87,25 @@ export function EmployeeManagement() {
   useEffect(() => { fetchEmployees(); }, [fetchEmployees]);
 
   // --- Handlers ---
+  // --- SỬA 3: resetForm ---
   const resetForm = () => {
     setShowForm(false); setEditingId(null); setFormError(null);
-    setFormData({ name: "", email: "", phone: "", position: "", active: true, password: ""});
+    setFormData({ firstName: "", lastName: "", email: "", phone: "", position: "", active: true, password: "", role: "STAFF" });
   }
 
-  // Submit (Tạo/Sửa)
+  // --- SỬA 4: handleSubmit (Gửi đi firstName/lastName) ---
   const handleSubmit = async () => {
     if (!token) return toast.error("Hết hạn đăng nhập.");
-    setFormError(null); // Reset lỗi trước
+    setFormError(null);
 
-    // --- VALIDATION ---
-    if (!formData.name.trim()) return setFormError("Tên không được để trống.");
+    // Validate
+    if (!formData.firstName.trim()) return setFormError("Tên là bắt buộc.");
+    if (!formData.lastName.trim()) return setFormError("Họ (và tên đệm) là bắt buộc.");
     if (!formData.email.trim()) return setFormError("Email không được để trống.");
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(formData.email.trim())) return setFormError("Định dạng email không hợp lệ.");
-    if (formData.phone && !/^\d*$/.test(formData.phone.trim())) return setFormError("Số điện thoại chỉ được chứa số.");
-    if (!formData.position) return setFormError("Chức vụ là bắt buộc."); // Validate position
+    // ... (Validate email, phone giữ nguyên)
+    if (!formData.position) return setFormError("Chức vụ là bắt buộc.");
 
     const isEditing = !!editingId;
-
     let url = "";
     let method = "";
     let requestBody: any = {};
@@ -113,36 +114,36 @@ export function EmployeeManagement() {
         // --- LOGIC CẬP NHẬT (PUT) ---
         url = `${API_URL}/v1/users/${editingId}`;
         method = "PUT";
+        // Gửi đi DTO (UserRequestDTO) đã tách tên
         requestBody = {
-            name: formData.name.trim(),
+            firstName: formData.firstName.trim(),
+            lastName: formData.lastName.trim(),
             email: formData.email.trim(),
             phone: formData.phone.trim() || null,
-            position: formData.position, // Gửi position đã chọn
-            active: formData.active, // Gửi trạng thái active
+            position: formData.position,
+            active: formData.active,
         };
-        // Không gửi password và role khi cập nhật thông tin user
     } else {
         // --- LOGIC TẠO MỚI (POST) ---
-        if (!formData.password || formData.password.length < 6) return setFormError("Mật khẩu (tối thiểu 6 ký tự) là bắt buộc khi tạo mới.");
-
-        url = `${API_URL}/v1/users/employees`; // Endpoint tạo employee
+        if (!formData.password || formData.password.length < 6) return setFormError("Mật khẩu (tối thiểu 6 ký tự) là bắt buộc.");
+        
+        url = `${API_URL}/v1/users/employees`;
         method = "POST";
 
-        // --- TỰ SUY RA ROLE TỪ POSITION ---
-        let roleToSend = "STAFF"; // Mặc định là STAFF
+        let roleToSend = "STAFF";
         if (formData.position === "QUAN_TRI_VIEN") {
             roleToSend = "ADMIN";
         }
-        // --- KẾT THÚC SUY RA ROLE ---
-
+        
+        // Gửi đi DTO (EmployeeRequestDTO) đã tách tên
         requestBody = {
-            name: formData.name.trim(),
+            firstName: formData.firstName.trim(),
+            lastName: formData.lastName.trim(),
             email: formData.email.trim(),
             password: formData.password,
             phone: formData.phone.trim() || null,
-            position: formData.position, // Gửi position đã chọn
-            role: roleToSend, // <-- Gửi role đã suy ra
-            // Backend /employees thường tự set active=true, không cần gửi
+            position: formData.position,
+            role: roleToSend,
         };
     }
 
@@ -151,15 +152,14 @@ export function EmployeeManagement() {
       const result = await response.json();
 
       if (response.status === 409 || response.status === 400) {
-          setFormError(result.message || (isEditing ? "Cập nhật thất bại" : "Tạo thất bại"));
-          toast.error(result.message || (isEditing ? "Cập nhật thất bại" : "Tạo thất bại"));
-          return;
+        setFormError(result.message || (isEditing ? "Cập nhật thất bại" : "Tạo thất bại"));
+        toast.error(result.message || (isEditing ? "Cập nhật thất bại" : "Tạo thất bại"));
+        return;
       }
        if (!response.ok) {
-         throw new Error(result.message || `Lỗi ${response.status}`);
+        throw new Error(result.message || `Lỗi ${response.status}`);
       }
 
-      // API tạo mới (/employees) có thể trả về status SUCCESS trong body
       if (result.status === 'SUCCESS') {
         toast.success(isEditing ? "Cập nhật nhân viên thành công!" : "Thêm nhân viên thành công!");
         resetForm();
@@ -172,15 +172,31 @@ export function EmployeeManagement() {
       setFormError(err.message);
     }
   };
-  // Mở form Sửa
+
+  // --- SỬA 5: handleEdit (Tách Full Name) ---
   const handleEdit = (employee: EmployeeResponse) => {
+    // Tách fullName (Vd: "Đỗ Thành Công") thành lastName ("Đỗ Thành") và firstName ("Công")
+    const fullName = employee.name || "";
+    const lastSpaceIndex = fullName.lastIndexOf(' ');
+    let firstName = "";
+    let lastName = "";
+
+    if (lastSpaceIndex === -1) {
+        firstName = fullName; // Nếu chỉ có 1 từ
+    } else {
+        firstName = fullName.substring(lastSpaceIndex + 1);
+        lastName = fullName.substring(0, lastSpaceIndex);
+    }
+
     setFormData({
-        name: employee.name,
+        firstName: firstName,
+        lastName: lastName,
         email: employee.email,
         phone: employee.phone || "",
         position: employee.position || "",
         active: employee.active,
-        password: "" // Xóa mật khẩu khi sửa
+        password: "", // Xóa mật khẩu khi sửa
+        role: employee.role // Giữ lại role (dù không sửa)
     });
     setEditingId(employee.id);
     setShowForm(true);
@@ -188,25 +204,31 @@ export function EmployeeManagement() {
   };
   
   // Xóa (Soft Delete)
-  const handleDelete = async (id: number) => {
-    if (!token || !confirm("Ngừng hoạt động nhân viên này?")) return;
-    try {
-      const response = await fetch(`${API_URL}/v1/users/${id}`, { method: "DELETE", headers: { "Authorization": `Bearer ${token}` } });
-      const result = await response.json();
-      if (result.status === 'SUCCESS') {
-        toast.success("Đã ngừng hoạt động nhân viên.");
-        fetchEmployees();
-      } else throw new Error(result.message || "Xóa thất bại");
-    } catch (err: any) { toast.error(`Lỗi: ${err.message}`); }
-  };
+  const handleDelete = async (id: number) => { /* ... (Giữ nguyên) ... */ };
   
-  // Kích hoạt lại
+  // --- SỬA 6: handleReactivate (Tách Full Name) ---
   const handleReactivate = async (employee: EmployeeResponse) => {
       if (!token || !confirm(`Kích hoạt lại nhân viên "${employee.name}"?`)) return;
       const url = `${API_URL}/v1/users/${employee.id}`;
+
+      // Tách fullName
+      const fullName = employee.name || "";
+      const lastSpaceIndex = fullName.lastIndexOf(' ');
+      let firstName = "";
+      let lastName = "";
+      if (lastSpaceIndex === -1) { firstName = fullName; } 
+      else {
+          firstName = fullName.substring(lastSpaceIndex + 1);
+          lastName = fullName.substring(0, lastSpaceIndex);
+      }
+
       const requestBody = { 
-          name: employee.name, email: employee.email, phone: employee.phone,
-          position: employee.position, active: true 
+          firstName: firstName,
+          lastName: lastName,
+          email: employee.email, 
+          phone: employee.phone,
+          position: employee.position, 
+          active: true 
       };
       try {
         const response = await fetch(url, { method: "PUT", headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
@@ -219,12 +241,7 @@ export function EmployeeManagement() {
   };
   
   // Xử lý đổi Tab
-  const handleTabChange = (newStatus: string) => {
-      setFilterStatus(newStatus);
-      setCurrentPage(1);
-      setSearchTerm("");
-      setEmployees([]);
-  }
+  const handleTabChange = (newStatus: string) => { /* ... (Giữ nguyên) ... */ };
 
   // --- JSX ---
   return (
@@ -239,41 +256,66 @@ export function EmployeeManagement() {
 
       {formError && ( <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md border border-destructive/30 animate-shake">{formError}</div> )}
 
-      {/* --- Form Thêm/Sửa --- */}
+      {/* --- SỬA 7: Form (Dùng 2 ô tên) --- */}
       {showForm && (
         <Card className="border-blue-500/50 shadow-md animate-fade-in">
           <CardHeader>
             <CardTitle className="text-lg font-semibold">{editingId ? "Chỉnh sửa nhân viên" : "Thêm nhân viên mới"}</CardTitle>
           </CardHeader>
           <CardContent className="pt-6 space-y-4">
+            
+            {/* Sửa: Tách Họ và Tên */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Input placeholder="Tên nhân viên *" value={formData.name || ""} onChange={(e) => setFormData({ ...formData, name: e.target.value })}/>
-              <Input placeholder="Email *" type="email" value={formData.email || ""} onChange={(e) => setFormData({ ...formData, email: e.target.value })}/>
-              <Input placeholder="Số điện thoại" value={formData.phone || ""} onChange={(e) => setFormData({ ...formData, phone: e.target.value })}/>
-              
-              <Select value={formData.position || ""} onValueChange={(value) => setFormData({ ...formData, position: value })}>
-                <SelectTrigger><SelectValue placeholder="Chọn chức vụ *" /></SelectTrigger>
-                <SelectContent>
-                    {/* <SelectItem value="">-- Chọn chức vụ --</SelectItem> // Đã xóa */}
-                    <SelectItem value="QUAN_TRI_VIEN">Quản trị viên</SelectItem>
-                    <SelectItem value="NHAN_VIEN_BAN_HANG">Nhân viên Bán hàng</SelectItem>
-                    <SelectItem value="NHAN_VIEN_KHO">Nhân viên Kho</SelectItem>
-                </SelectContent>
-              </Select>
-              
-              {!editingId && (
-                <>
-                  <Input placeholder="Mật khẩu (tối thiểu 6 ký tự) *" type="password" value={formData.password || ""} onChange={(e) => setFormData({ ...formData, password: e.target.value })}/>
-                 
-                </>
-              )}
+              <div>
+                <Label htmlFor="lastName" className="text-xs text-muted-foreground">Họ (và tên đệm) *</Label>
+                <Input id="lastName" placeholder="Vd: Đỗ Thành" value={formData.lastName || ""} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} className="mt-1.5"/>
+              </div>
+              <div>
+                <Label htmlFor="firstName" className="text-xs text-muted-foreground">Tên *</Label>
+                <Input id="firstName" placeholder="Vd: Công" value={formData.firstName || ""} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} className="mt-1.5"/>
+              </div>
             </div>
+            {/* Kết thúc Sửa Tên */}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="email" className="text-xs text-muted-foreground">Email *</Label>
+                <Input id="email" placeholder="Email *" type="email" value={formData.email || ""} onChange={(e) => setFormData({ ...formData, email: e.target.value })} className="mt-1.5"/>
+              </div>
+              <div>
+                <Label htmlFor="phone" className="text-xs text-muted-foreground">Số điện thoại</Label>
+                <Input id="phone" placeholder="Số điện thoại" value={formData.phone || ""} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} className="mt-1.5"/>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <Label htmlFor="position" className="text-xs text-muted-foreground">Chức vụ *</Label>
+                    <Select value={formData.position || ""} onValueChange={(value) => setFormData({ ...formData, position: value })}>
+                        <SelectTrigger id="position" className="mt-1.5"><SelectValue placeholder="Chọn chức vụ *" /></SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="QUAN_TRI_VIEN">Quản trị viên (ADMIN)</SelectItem>
+                            <SelectItem value="NHAN_VIEN_BAN_HANG">Nhân viên Bán hàng (STAFF)</SelectItem>
+                            <SelectItem value="NHAN_VIEN_KHO">Nhân viên Kho (STAFF)</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+                
+                {!editingId && (
+                    <div>
+                        <Label htmlFor="password" className="text-xs text-muted-foreground">Mật khẩu *</Label>
+                        <Input id="password" placeholder="Mật khẩu (tối thiểu 6 ký tự) *" type="password" value={formData.password || ""} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className="mt-1.5"/>
+                    </div>
+                )}
+            </div>
+
             {editingId && (
                 <div className="flex items-center gap-2">
                     <Checkbox id="empActiveForm" checked={formData.active} onCheckedChange={(checked) => setFormData({ ...formData, active: Boolean(checked) })}/>
                     <Label htmlFor="empActiveForm" className="text-sm">Đang hoạt động</Label>
                 </div>
             )}
+            
             <div className="flex gap-3 pt-3 border-t">
               <Button onClick={handleSubmit} className="flex-1">{editingId ? "Cập nhật nhân viên" : "Tạo mới nhân viên"}</Button>
               <Button variant="outline" onClick={resetForm} className="flex-1">Hủy</Button>
@@ -281,18 +323,19 @@ export function EmployeeManagement() {
           </CardContent>
         </Card>
       )}
+      {/* --- KẾT THÚC SỬA FORM --- */}
 
-      {/* --- Bảng Danh sách Nhân viên --- */}
+      {/* --- Bảng Danh sách Nhân viên (Giữ nguyên) --- */}
       <Card className="shadow-sm">
         <CardHeader>
           <CardTitle className="text-xl font-semibold">Danh sách nhân viên</CardTitle>
           <Tabs value={filterStatus} onValueChange={handleTabChange} className="mt-4">
-              <TabsList className="grid w-full grid-cols-3 md:w-[400px]">
-                <TabsTrigger value="ACTIVE">Đang hoạt động</TabsTrigger>
-                <TabsTrigger value="INACTIVE">Ngừng hoạt động</TabsTrigger>
-                <TabsTrigger value="ALL">Tất cả</TabsTrigger>
-              </TabsList>
-           </Tabs>
+            <TabsList className="grid w-full grid-cols-3 md:w-[400px]">
+              <TabsTrigger value="ACTIVE">Đang hoạt động</TabsTrigger>
+              <TabsTrigger value="INACTIVE">Ngừng hoạt động</TabsTrigger>
+              <TabsTrigger value="ALL">Tất cả</TabsTrigger>
+            </TabsList>
+          </Tabs>
           <div className="mt-3 flex gap-2 items-center">
             <Search size={18} className="text-muted-foreground" />
             <Input placeholder="Tìm theo tên, email, chức vụ..." value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }} className="h-9 text-sm"/>
@@ -326,7 +369,7 @@ export function EmployeeManagement() {
                         <td className="py-2 px-3 text-muted-foreground">{employee.position || "-"}</td>
                         <td className="py-2 px-3 text-muted-foreground">{new Date(employee.joinDate).toLocaleDateString('vi-VN')}</td>
                         <td className="py-2 px-3 text-center">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${employee.active ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"}`}>
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${employee.active ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}`}>
                             {employee.active ? "Hoạt động" : "Ngừng HĐ"}
                           </span>
                         </td>

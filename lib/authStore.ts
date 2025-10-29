@@ -1,31 +1,62 @@
-"use client"; // Thêm "use client" nếu file này được dùng ở Client Component (an toàn nhất là cứ thêm vào)
+"use client"; 
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { toast } from "sonner"; // Import toast để thông báo
+import { toast } from "sonner";
 
 // --- Interface cho User (sau khi đăng nhập) ---
 export interface AuthenticatedUser {
   id: number | string;
   name: string;
+  firstName: string; // Tên
+  lastName: string;  // Họ
   email: string;
   roles: string[];
-  avatar?: string; // Thêm avatar nếu API trả về
+  avatar?: string; 
+  phone: string | null;
+  gender: string | null; // (vd: "MALE")
+  dob: string | null; // (vd: "YYYY-MM-DD")
 }
 
-// --- Interface cho Store (Thêm 'initialize', 'register', 'resetPassword') ---
+// --- Interface cho Store (Đã thêm 2 hàm mới) ---
 interface AuthStore {
   user: AuthenticatedUser | null;
   token: string | null;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
-  register: (email: string, password: string, name: string) => Promise<void>;
+  // Sửa: Đã đổi thành 4 tham số
+  register: (firstName: string, lastName: string, email: string, password: string) => Promise<void>; 
   resetPassword: (email: string) => Promise<void>;
-  initialize: () => Promise<void>; // Hàm tự động kiểm tra token khi tải lại
+updateProfile: (data: { firstName: string, lastName: string, phone: string | null, gender: string, dob: string | null }) => Promise<void>;  updatePassword: (data: { currentPassword: string, newPassword: string, confirmationPassword: string }) => Promise<void>;
+  initialize: () => Promise<void>; 
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+
+// --- 1. SỬA INTERFACE NÀY ---
+// (Interface này phải khớp với AuthenticationResponseDTO của Backend)
+interface LoginResponseData {
+  accessToken: string;
+  // (Không có 'user' lồng nhau)
+  id: number | string;
+  name: string;
+  firstName: string; // Tên
+  lastName: string;  // Họ
+  email: string;
+  roles: string[];
+  avatar?: string;
+  phone: string | null;
+  gender: string | null;
+  dob: string | null;
+}
+// --- KẾT THÚC SỬA 1 ---
+
+interface ApiResponseDTO<T> {
+    status: string;
+    data: T;
+    message: string;
+}
 
 export const useAuthStore = create<AuthStore>()(
   persist(
@@ -34,7 +65,7 @@ export const useAuthStore = create<AuthStore>()(
       token: null,
       isAuthenticated: false,
 
-      // --- 1. HÀM ĐĂNG NHẬP (LOGIN) ---
+      // --- 2. SỬA HÀM LOGIN ---
       login: async (email, password) => {
         const response = await fetch(`${API_URL}/v1/auth/login`, {
           method: "POST",
@@ -42,62 +73,70 @@ export const useAuthStore = create<AuthStore>()(
           body: JSON.stringify({ email, password }),
         });
 
-        const responseData = await response.json();
-        if (!response.ok || responseData.status !== 'SUCCESS') { // Giả sử backend trả 'SUCCESS'
+        const responseData: ApiResponseDTO<LoginResponseData> = await response.json(); 
+        
+        if (!response.ok || responseData.status !== 'SUCCESS') {
           throw new Error(responseData.message || "Email hoặc mật khẩu không chính xác");
         }
 
-        const apiData = responseData.data;
-        const token = apiData.accessToken || apiData.token; // Lấy accessToken hoặc token
+        const apiData = responseData.data; // apiData LÀ LoginResponseData
+        const token = apiData.accessToken;
 
         if (!token) {
           throw new Error("API không trả về token");
         }
         
+        // Sửa: Đọc trực tiếp từ apiData (không qua apiData.user)
         set({
-          user: {
-            id: apiData.id,
-            name: apiData.name,
-            email: apiData.email,
-            roles: apiData.roles,
-            avatar: apiData.avatar,
+          user: { 
+              id: apiData.id,
+              name: apiData.name,
+              firstName: apiData.firstName, // Tên
+              lastName: apiData.lastName, // Họ
+              email: apiData.email,
+              roles: apiData.roles,
+              avatar: apiData.avatar,
+              phone: apiData.phone,
+              gender: apiData.gender,
+              dob: apiData.dob,
           },
           token: token,
           isAuthenticated: true,
         });
       },
+      // --- KẾT THÚC SỬA 2 ---
 
-     // --- 2. HÀM ĐĂNG XUẤT (LOGOUT) ---
+     // --- 3. HÀM ĐĂNG XUẤT (LOGOUT) ---
       logout: () => {
         set({ user: null, token: null, isAuthenticated: false });
-        // Sửa: Đẩy về trang chủ (là trang Login)
         if (typeof window !== 'undefined') {
-            window.location.href = '/'; 
+            window.location.href = '/'; // Đẩy về trang chủ (/)
         }
       },
 
-      // --- 3. HÀM ĐĂNG KÝ (REGISTER) ---
-      register: async (email, password, name) => {
-        const nameParts = name.trim().split(' ');
-        const firstName = nameParts.shift() || "";
-        const lastName = nameParts.join(' ');
-
+      // --- 4. HÀM ĐĂNG KÝ (REGISTER) ---
+      // (Sửa: Đã đổi thành 4 tham số)
+      register: async (firstName: string, lastName: string, email: string, password: string) => {
         const response = await fetch(`${API_URL}/v1/auth/register`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password, firstName, lastName }),
         });
 
-        const responseData = await response.json();
-        
-        if (response.status === 201 && responseData.status === 'SUCCESS') {
-             return; // Thành công, yêu cầu kích hoạt email
-        } else {
-             throw new Error(responseData.message || "Đăng ký thất bại. Email đã tồn tại.");
+        if (!response.ok) {
+            let errorMessage = "Đăng ký thất bại. Email đã tồn tại.";
+             try {
+                const errJson = await response.json();
+                errorMessage = errJson.message || errorMessage;
+             } catch(e) {
+                 errorMessage = await response.text() || errorMessage;
+             }
+             throw new Error(errorMessage);
         }
+        // (Không set state, chỉ trả về thành công)
       },
       
-      // --- 4. HÀM QUÊN MẬT KHẨU (RESET PASSWORD) ---
+      // --- 5. HÀM QUÊN MẬT KHẨU (RESET PASSWORD) ---
       resetPassword: async (email) => {
           const response = await fetch(`${API_URL}/v1/auth/forgot-password`, {
               method: 'POST',
@@ -105,65 +144,119 @@ export const useAuthStore = create<AuthStore>()(
               body: JSON.stringify({ email }),
           });
           
-          const responseData = await response.json();
-          if (response.ok && responseData.status === 'SUCCESS') {
-              return; // Thành công
-          } else {
-              throw new Error(responseData.message || "Lỗi máy chủ, không thể gửi yêu cầu.");
+          if (!response.ok) {
+              let errorMessage = "Lỗi máy chủ, không thể gửi yêu cầu.";
+              try {
+                const errJson = await response.json();
+                errorMessage = errJson.message || errorMessage;
+             } catch(e) {
+                 errorMessage = await response.text() || errorMessage;
+             }
+             throw new Error(errorMessage);
           }
+          // (Không set state, chỉ trả về thành công)
       },
-      
-      // --- 5. HÀM KHỞI TẠO (SỬA LỖI TỰ ĐỘNG ĐĂNG NHẬP) ---
+
+      // --- 6. HÀM CẬP NHẬT PROFILE ---
+      updateProfile: async (data: { firstName: string, lastName: string, phone: string | null, gender: string, dob: string | null }) => {
+        const { token } = get();
+        if (!token) throw new Error("Chưa đăng nhập");
+
+        // Gộp lại 'name' trước khi gửi, vì API /profile (UserService) đang nhận 'name'
+        const dataToSubmit = {
+            ...data,
+            name: (data.lastName + " " + data.firstName).trim()
+        };
+
+        const response = await fetch(`${API_URL}/v1/users/profile`, { 
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(dataToSubmit) // Gửi 'name' đã gộp
+        });
+
+        const result: ApiResponseDTO<AuthenticatedUser> = await response.json(); 
+        if (!response.ok || result.status !== 'SUCCESS') {
+          throw new Error(result.message || 'Cập nhật thất bại');
+        }
+        
+        // Cập nhật state 'user' cục bộ
+        set(state => ({
+          // @ts-ignore
+          user: { ...(state.user as AuthenticatedUser), ...result.data } 
+        }));
+      },
+
+      // --- 7. HÀM ĐỔI MẬT KHẨU ---
+      updatePassword: async (data: { currentPassword: string, newPassword: string, confirmationPassword: string }) => {
+        const { token } = get();
+        if (!token) throw new Error("Chưa đăng nhập");
+        
+        const response = await fetch(`${API_URL}/v1/users/update-password`, { 
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(data)
+        });
+
+        if (!response.ok) {
+          let errorMessage = 'Đổi mật khẩu thất bại';
+          try {
+             const err = await response.json(); 
+             errorMessage = err.message || errorMessage;
+          } catch(e) {
+             const errText = await response.text();
+             errorMessage = errText || errorMessage;
+          }
+          throw new Error(errorMessage);
+        }
+        // (Không cần làm gì, API chỉ trả về message thành công)
+      },
+
+      // --- 8. HÀM KHỞI TẠO (KIỂM TRA TOKEN) ---
       initialize: async () => {
-          const { token, isAuthenticated } = get(); // Lấy state VỪA TẢI TỪ localStorage
+          const { token, isAuthenticated, logout } = get(); 
           
-          // Chỉ chạy nếu state nói "đã đăng nhập" VÀ "có token"
           if (isAuthenticated && token) {
               try {
-                  // Gọi một API nhẹ (bất kỳ API nào cần xác thực)
-                  // Ví dụ: Lấy 1 danh mục (ít dữ liệu)
                   const response = await fetch(`${API_URL}/v1/categories/all-brief`, {
                       method: 'GET',
                       headers: { 'Authorization': `Bearer ${token}` },
                   });
 
-                  if (response.ok) {
-                    // Token còn hạn, không cần làm gì
-                    console.log("Token re-validation successful.");
-                  } else if (response.status === 401) { 
-                    // Nếu lỗi 401 Unauthorized (Token hết hạn/Không hợp lệ)
-                    toast.error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
-                    get().logout(); // Gọi hàm logout để xóa state
-                  } else {
-                    // Lỗi server khác (500, 404, v.v.)
-                    throw new Error("Lỗi máy chủ khi xác thực lại");
+                  if (response.status === 401) { 
+                      toast.error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+                      logout(); 
+                  } else if (!response.ok) {
+                      throw new Error("Lỗi máy chủ khi xác thực lại");
                   }
+                  
               } catch (e) {
-                  // Lỗi mạng (fetch thất bại)
                   console.error("Lỗi mạng khi xác thực lại:", e);
                   toast.error("Mất kết nối máy chủ. Vui lòng đăng nhập lại.");
-                  get().logout(); // Đăng xuất nếu không thể kết nối
+                  logout(); 
               }
           }
       }
     }),
     {
-      name: "auth-storage", // Tên key trong localStorage
+      name: "auth-storage", 
       storage: createJSONStorage(() => localStorage),
       
-      // --- 6. KÍCH HOẠT HÀM INITIALIZE ---
-      // Hàm này chạy ngay SAU KHI state được tải từ localStorage
       onRehydrateStorage: () => {
         return (state, error) => {
           if (state && !error) {
-            // Ngay sau khi tải (ví dụ: isAuthenticated=true),
-            // gọi hàm initialize() để kiểm tra token với backend
-            state.initialize(); 
+            // (Tắt 'initialize' để tránh lỗi Hydration)
+            // state.initialize(); 
           }
         };
       },
 
-      partialize: (state) => ({ // Chỉ lưu 3 mục này vào localStorage
+      partialize: (state) => ({ 
         user: state.user,
         token: state.token,
         isAuthenticated: state.isAuthenticated,
