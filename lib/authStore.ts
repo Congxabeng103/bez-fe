@@ -3,7 +3,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { toast } from "sonner";
-
+import Cookies from 'js-cookie'; // <-- 1. THÊM DÒNG NÀY  
 // --- Interface cho User (sau khi đăng nhập) ---
 export interface AuthenticatedUser {
   id: number | string;
@@ -103,11 +103,19 @@ export const useAuthStore = create<AuthStore>()(
           token: token,
           isAuthenticated: true,
         });
+        //(Middleware của bạn (File 168) đang tìm 'authToken')
+        Cookies.set('authToken', token, { 
+            expires: 7, // (Hết hạn sau 7 ngày)
+            secure: process.env.NODE_ENV === 'production', 
+
+        });
+       
       },
       // --- KẾT THÚC SỬA 2 ---
 
      // --- 3. HÀM ĐĂNG XUẤT (LOGOUT) ---
       logout: () => {
+        Cookies.remove('authToken');
         set({ user: null, token: null, isAuthenticated: false });
         if (typeof window !== 'undefined') {
             window.location.href = '/'; // Đẩy về trang chủ (/)
