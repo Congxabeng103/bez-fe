@@ -74,6 +74,7 @@ export function ProductManagement() {
   const [promotionsBrief, setPromotionsBrief] = useState<PromotionBrief[]>([]);
   const [isLoadingSelectData, setIsLoadingSelectData] = useState(false);
 const [formWarning, setFormWarning] = useState<string | null>(null);
+const [errors, setErrors] = useState<Partial<Record<keyof ProductFormData, string>>>({});
   // --- API Fetching ---
   const fetchProducts = useCallback(async () => {
     if (!token) return; setIsLoading(true); setError(null);
@@ -148,38 +149,96 @@ const [formWarning, setFormWarning] = useState<string | null>(null);
   // --- Handlers ---
   const resetForm = () => {
     setShowForm(false); setEditingId(null);
-    setFormWarning(null); // <-- THÊM: Xóa cảnh báo
+    setFormWarning(null); 
+    setErrors({}); // <-- THÊM: Xóa lỗi validation
     setFormData({ name: "", description: "", price: "", imageUrl: "", categoryId: "", brandId: "", promotionId: "", active: true });
   }
 
   // Submit Form
+  // Submit Form (Đã sửa: Bắt lỗi HTTP và hiển thị toast)
   const handleSubmit = async () => {
-    if (!token) return toast.error("Hết hạn đăng nhập.");
-     if (!formData.name.trim()) return toast.error("Nhập tên sản phẩm.");
-     const price = Number(formData.price); if (isNaN(price) || price <= 0) return toast.error("Nhập giá > 0.");
-     if (!formData.categoryId) return toast.error("Chọn danh mục.");
+    if (!token) return toast.error("Hết hạn đăng nhập.");
 
+    // --- 1. Validation ---
+    const newErrors: Partial<Record<keyof ProductFormData, string>> = {};
+    const name = formData.name.trim();
+    const priceValue = Number(formData.price);
+    const categoryId = formData.categoryId;
+
+    if (!name) {
+      newErrors.name = "Tên sản phẩm là bắt buộc.";
+    } else if (name.length < 3) {
+      newErrors.name = "Tên sản phẩm phải có ít nhất 3 ký tự.";
+    }
+    
+    if (isNaN(priceValue) || priceValue <= 0) {
+      newErrors.price = "Giá gốc phải là số hợp lệ và lớn hơn 0.";
+    }
+    
+    if (!categoryId) {
+      newErrors.categoryId = "Vui lòng chọn danh mục.";
+    }
+
+    setErrors(newErrors); // Cập nhật state lỗi
+
+    if (Object.keys(newErrors).length > 0) {
+      toast.error("Vui lòng kiểm tra lại thông tin trong form."); // Thông báo toast chung
+      return; // Dừng lại nếu có lỗi
+    }
+
+    // --- 2. Chuẩn bị Request Body (Giữ nguyên) ---
     const isEditing = !!editingId;
     const url = isEditing ? `${API_URL}/v1/products/${editingId}` : `${API_URL}/v1/products`;
     const method = isEditing ? "PUT" : "POST";
+    
     const requestBody = {
-        name: formData.name.trim(), description: formData.description.trim(),
-        price: price, imageUrl: formData.imageUrl || null,
-        categoryId: Number(formData.categoryId) || null,
+        name: name, 
+        description: formData.description.trim(),
+        price: priceValue, 
+        imageUrl: formData.imageUrl || null,
+        categoryId: Number(categoryId) || null,
         brandId: Number(formData.brandId) || null,
         promotionId: Number(formData.promotionId) || null,
         active: formData.active,
     };
+    
+    // --- 3. Thực hiện API Call (Đã sửa lỗi bắt lỗi) ---
     try {
-      const response = await fetch(url, { method, headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
-      if (response.status === 409) { /* ... (Xử lý lỗi trùng lặp) ... */ }
-      if (!response.ok) { /* ... (Xử lý lỗi response.ok) ... */ }
+      const response = await fetch(url, { 
+        method, 
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" }, 
+        body: JSON.stringify(requestBody) 
+      });
+
+      // BƯỚC QUAN TRỌNG NHẤT: Đọc lỗi từ backend nếu status không phải 2xx
+      if (!response.ok) { 
+        // Đọc thông báo lỗi chi tiết mà Spring Boot gửi về
+        let errorMsg = `Lỗi HTTP: ${response.status}`;
+        try { 
+            const errData = await response.json(); 
+            // Nếu Spring Boot trả về cấu trúc lỗi chi tiết (vd: 409 Conflict)
+            errorMsg = errData.message || errData.error || errorMsg; 
+        } catch (e) {
+            // Nếu không phải JSON (vd: lỗi 500 server)
+            errorMsg = await response.text();
+        }
+        // Ném lỗi để khối catch xử lý
+        throw new Error(errorMsg); 
+      }
+      
       const result = await response.json();
-       if (result.status === 'SUCCESS') {
-         toast.success(isEditing ? "Cập nhật thành công!" : "Thêm thành công!");
-         resetForm(); fetchProducts();
-       } else throw new Error(result.message || (isEditing ? "Cập nhật thất bại" : "Thêm thất bại"));
-    } catch (err: any) { toast.error(`Lỗi: ${err.message}`); }
+
+      if (result.status === 'SUCCESS') {
+        toast.success(isEditing ? "Cập nhật thành công!" : "Thêm thành công!");
+        resetForm(); 
+        fetchProducts(); // Cập nhật lại danh sách
+      } else {
+        throw new Error(result.message || (isEditing ? "Cập nhật thất bại" : "Thêm thất bại"));
+      }
+    } catch (err: any) { 
+      // Hiển thị lỗi chi tiết từ khối catch
+      toast.error(`Thao tác thất bại: ${err.message}`); 
+    }
   };
 
   // Mở Form Sửa
@@ -319,21 +378,73 @@ const [formWarning, setFormWarning] = useState<string | null>(null);
                 </div>
             )}
             <ImageUpload value={formData.imageUrl || ""} onChange={(value) => setFormData({ ...formData, imageUrl: value })} label="Hình ảnh sản phẩm (URL)"/>
+            {/* SỬA: Bọc mỗi input trong 1 div để hiển thị lỗi bên dưới */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Input placeholder="Tên sản phẩm *" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })}/>
-              <Input placeholder="Giá gốc *" type="number" value={formData.price} onChange={(e) => setFormData({ ...formData, price: e.target.value })} min="1"/>
+              
+              {/* === Input Tên === */}
+              <div className="space-y-1.5"> 
+                <Input 
+                  placeholder="Tên sản phẩm *" 
+                  value={formData.name} 
+                  onChange={(e) => {
+                    setFormData({ ...formData, name: e.target.value });
+                    // Xóa lỗi khi người dùng bắt đầu gõ
+                    if (errors.name) setErrors(prev => ({ ...prev, name: undefined })); 
+                  }}
+                  className={errors.name ? "border-destructive focus-visible:ring-destructive" : ""} // Thêm viền đỏ
+                />
+                {/* DÒNG HIỂN THỊ LỖI TÊN */}
+                {errors.name && <p className="text-xs text-destructive">{errors.name}</p>} 
+              </div>
+
+              {/* === Input Giá === */}
+              <div className="space-y-1.5">
+                <Input 
+                  placeholder="Giá gốc *" 
+                  type="number" 
+                  value={formData.price} 
+                  onChange={(e) => {
+                    setFormData({ ...formData, price: e.target.value });
+                    if (errors.price) setErrors(prev => ({ ...prev, price: undefined }));
+                  }} 
+                  min="1"
+                  className={errors.price ? "border-destructive focus-visible:ring-destructive" : ""} // Thêm viền đỏ
+                />
+                {/* DÒNG HIỂN THỊ LỖI GIÁ */}
+                {errors.price && <p className="text-xs text-destructive">{errors.price}</p>}
+              </div>
+
             </div>
             <Textarea placeholder="Mô tả sản phẩm" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })}/>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Select Category */}
-              <div>
-                <Label htmlFor="categorySelect" className="text-xs text-muted-foreground">Danh mục * (Chỉ hiện mục active)</Label>
-                <Select value={formData.categoryId} onValueChange={(value) => setFormData({ ...formData, categoryId: value })}>
-                  <SelectTrigger id="categorySelect" className="mt-1"><SelectValue placeholder="Chọn danh mục" /></SelectTrigger>
+              {/* === SỬA Select Category === */}
+              <div className="space-y-1.5"> {/* Bọc lại bằng div */}
+                <Label 
+                  htmlFor="categorySelect" 
+                  className={`text-xs text-muted-foreground ${errors.categoryId ? 'text-destructive' : ''}`}
+                >
+                  Danh mục * (Chỉ hiện mục active)
+                </Label>
+                <Select 
+                  value={formData.categoryId} 
+                  onValueChange={(value) => {
+                    setFormData({ ...formData, categoryId: value });
+                    if (errors.categoryId) setErrors(prev => ({ ...prev, categoryId: undefined }));
+                  }}
+                >
+                  <SelectTrigger 
+                    id="categorySelect" 
+                    className={`mt-1 ${errors.categoryId ? "border-destructive focus:ring-destructive" : ""}`} // Thêm viền đỏ
+                  >
+                    <SelectValue placeholder="Chọn danh mục" />
+                  </SelectTrigger>
                   <SelectContent>{isLoadingSelectData ? <div className="p-2 text-sm text-center">Đang tải...</div> : 
-                    categories.map(cat => (<SelectItem key={cat.id} value={String(cat.id)}>{cat.name}</SelectItem>))
-                  }{!isLoadingSelectData && categories.length === 0 && <div className="p-2 text-sm text-center">Không có DL</div>}</SelectContent>
+                    categories.map(cat => (<SelectItem key={cat.id} value={String(cat.id)}>{cat.name}</SelectItem>))
+                  }{!isLoadingSelectData && categories.length === 0 && <div className="p-2 text-sm text-center">Không có DL</div>}</SelectContent>
                 </Select>
+                {/* DÒNG HIỂN THỊ LỖI DANH MỤC */}
+                {errors.categoryId && <p className="text-xs text-destructive">{errors.categoryId}</p>} 
               </div>
               {/* Select Brand */}
               <div>
