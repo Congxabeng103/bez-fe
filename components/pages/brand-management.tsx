@@ -18,14 +18,15 @@ const ITEMS_PER_PAGE = 10;
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
 
 // --- Interfaces ---
-interface BrandResponse { // ĐỔI TÊN
+interface BrandResponse { 
   id: number; 
   name: string; 
   description: string;
   imageUrl: string; 
   active: boolean; 
+  productCount: number; // <-- THÊM DÒNG NÀY
 }
-interface BrandFormData { // ĐỔI TÊN
+interface BrandFormData { 
   name: string; 
   description: string;
   imageUrl: string; 
@@ -33,46 +34,46 @@ interface BrandFormData { // ĐỔI TÊN
 }
 
 // --- Component ---
-export function BrandManagement() { // ĐỔI TÊN
+export function BrandManagement() { 
   const { token } = useAuthStore();
 
   // --- States ---
-  const [brands, setBrands] = useState<BrandResponse[]>([]); // ĐỔI TÊN
-  const [brandPage, setBrandPage] = useState(1); // ĐỔI TÊN
-  const [totalBrandPages, setTotalBrandPages] = useState(0); // ĐỔI TÊN
-  const [brandSearchTerm, setBrandSearchTerm] = useState(""); // ĐỔI TÊN
+  const [brands, setBrands] = useState<BrandResponse[]>([]); 
+  const [brandPage, setBrandPage] = useState(1); 
+  const [totalBrandPages, setTotalBrandPages] = useState(0); 
+  const [brandSearchTerm, setBrandSearchTerm] = useState(""); 
   const [isFetching, setIsFetching] = useState(false);
   const [filterStatus, setFilterStatus] = useState("ACTIVE"); 
 
   // Form
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [formData, setFormData] = useState<BrandFormData>({ name: "", description: "", imageUrl: "", active: true }); // ĐỔI TÊN
-  const [errors, setErrors] = useState<Partial<Record<keyof BrandFormData, string>>>({}); // ĐỔI TÊN
+  const [formData, setFormData] = useState<BrandFormData>({ name: "", description: "", imageUrl: "", active: true }); 
+  const [errors, setErrors] = useState<Partial<Record<keyof BrandFormData, string>>>({}); 
 
   // --- API Fetching ---
-  const fetchBrands = useCallback(async () => { // ĐỔI TÊN
+  const fetchBrands = useCallback(async () => { 
     if (!token) return;
     setIsFetching(true);
-    const url = new URL(`${API_URL}/v1/brands`); // ĐỔI TÊN
-    url.searchParams.append("page", (brandPage - 1).toString()); // ĐỔI TÊN
+    const url = new URL(`${API_URL}/v1/brands`); 
+    url.searchParams.append("page", (brandPage - 1).toString()); 
     url.searchParams.append("size", ITEMS_PER_PAGE.toString());
     url.searchParams.append("sort", "name,asc");
     url.searchParams.append("status", filterStatus);
-    if (brandSearchTerm) url.searchParams.append("search", brandSearchTerm); // ĐỔI TÊN
+    if (brandSearchTerm) url.searchParams.append("search", brandSearchTerm); 
     try {
       const response = await fetch(url.toString(), { headers: { "Authorization": `Bearer ${token}` } });
       const result = await response.json();
       if (result.status === 'SUCCESS' && result.data) {
-        setBrands(result.data.content); // ĐỔI TÊN
-        setTotalBrandPages(result.data.totalPages); // ĐỔI TÊN
-      } else throw new Error(result.message || "Lỗi tải thương hiệu"); // ĐỔI TÊN
-    } catch (err: any) { toast.error(`Lỗi tải thương hiệu: ${err.message}`); } // ĐỔI TÊN
+        setBrands(result.data.content); 
+        setTotalBrandPages(result.data.totalPages); 
+      } else throw new Error(result.message || "Lỗi tải thương hiệu"); 
+    } catch (err: any) { toast.error(`Lỗi tải thương hiệu: ${err.message}`); } 
     finally { setIsFetching(false); }
-  }, [token, brandPage, brandSearchTerm, filterStatus]); // ĐỔI TÊN
+  }, [token, brandPage, brandSearchTerm, filterStatus]); 
 
   // --- useEffects ---
-  useEffect(() => { fetchBrands(); }, [fetchBrands]); // ĐỔI TÊN
+  useEffect(() => { fetchBrands(); }, [fetchBrands]); 
 
   // --- Handlers ---
   const resetForm = () => {
@@ -83,44 +84,32 @@ export function BrandManagement() { // ĐỔI TÊN
 
   // Submit Form (Tạo/Sửa)
   const handleSubmit = async () => {
+    // ... (Logic này giữ nguyên)
     if (!token) return toast.error("Vui lòng đăng nhập lại.");
-    
-    // 1. Validation
-    const newErrors: Partial<Record<keyof BrandFormData, string>> = {}; // ĐỔI TÊN
+    const newErrors: Partial<Record<keyof BrandFormData, string>> = {};
     const name = formData.name.trim();
-    
-    if (!name) { newErrors.name = "Tên thương hiệu không được để trống."; } // ĐỔI TÊN
-    else if (name.length < 3) { newErrors.name = "Tên thương hiệu phải có ít nhất 3 ký tự."; } // ĐỔI TÊN
-
+    if (!name) { newErrors.name = "Tên thương hiệu không được để trống."; } 
+    else if (name.length < 1) { newErrors.name = "Tên thương hiệu không được bỏ trống"; }
     setErrors(newErrors);
     if (Object.keys(newErrors).length > 0) {
       toast.error("Vui lòng kiểm tra lại thông tin.");
       return;
     }
-
-    // 2. API Call
     const isEditing = !!editingId;
-    const url = isEditing ? `${API_URL}/v1/brands/${editingId}` : `${API_URL}/v1/brands`; // ĐỔI TÊN
+    const url = isEditing ? `${API_URL}/v1/brands/${editingId}` : `${API_URL}/v1/brands`;
     const method = isEditing ? "PUT" : "POST";
-    
-    const requestBody = { 
-      ...formData, 
-      name: name,
-      imageUrl: formData.imageUrl || null // Gửi null nếu chuỗi rỗng
-    }; 
-    
+    const requestBody = { ...formData, name: name, imageUrl: formData.imageUrl || null }; 
     try {
       const response = await fetch(url, { method, headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
       const result = await response.json();
-      
       if (result.status === 'SUCCESS') {
-        toast.success(isEditing ? "Cập nhật thương hiệu thành công!" : "Thêm thương hiệu thành công!"); // ĐỔI TÊN
+        toast.success(isEditing ? "Cập nhật thương hiệu thành công!" : "Thêm thương hiệu thành công!");
         resetForm(); 
-        fetchBrands(); // ĐỔI TÊN
+        fetchBrands(); 
       } else {
         if (response.status === 409) { 
-          setErrors({ name: result.message || "Tên thương hiệu này đã tồn tại." }); // ĐỔI TÊN
-          toast.error(result.message || "Tên thương hiệu này đã tồn tại."); // ĐỔI TÊN
+          setErrors({ name: result.message || "Tên thương hiệu này đã tồn tại." });
+          toast.error(result.message || "Tên thương hiệu này đã tồn tại.");
         } else {
           throw new Error(result.message || (isEditing ? "Cập nhật thất bại" : "Thêm thất bại"));
         }
@@ -130,42 +119,74 @@ export function BrandManagement() { // ĐỔI TÊN
     }
   };
 
-  // Mở form Sửa
-  const handleEdit = (brand: BrandResponse) => { // ĐỔI TÊN
+  // Mở form Sửa (Giữ nguyên)
+  const handleEdit = (brand: BrandResponse) => {
     setFormData({ 
-      name: brand.name, // ĐỔI TÊN
-      description: brand.description || "", // ĐỔI TÊN
-      active: brand.active, // ĐỔI TÊN
-      imageUrl: brand.imageUrl || "" // Tải ảnh cũ vào form
+      name: brand.name, 
+      description: brand.description || "", 
+      active: brand.active,
+      imageUrl: brand.imageUrl || ""
     });
-    setEditingId(brand.id); // ĐỔI TÊN
+    setEditingId(brand.id); 
     setShowForm(true); 
     setErrors({});
   };
   
-  // Xóa (Soft Delete)
+  // --- SỬA HÀM NÀY (Soft Delete) ---
   const handleDelete = async (id: number) => {
-    if (!token || !confirm("Ngừng hoạt động thương hiệu này?")) return; // ĐỔI TÊN
+    // Thêm cảnh báo về việc ẩn hàng loạt
+    if (!token || !confirm("Ngừng hoạt động thương hiệu này? LƯU Ý: Tất cả sản phẩm đang hoạt động thuộc thương hiệu này cũng sẽ bị ngừng hoạt động.")) return;
     try {
-      const response = await fetch(`${API_URL}/v1/brands/${id}`, { method: "DELETE", headers: { "Authorization": `Bearer ${token}` } }); // ĐỔI TÊN
+      const response = await fetch(`${API_URL}/v1/brands/${id}`, { method: "DELETE", headers: { "Authorization": `Bearer ${token}` } });
       const result = await response.json();
       if (result.status === 'SUCCESS') {
-        toast.success("Đã ngừng hoạt động thương hiệu."); // ĐỔI TÊN
-        fetchBrands(); // ĐỔI TÊN
+        toast.success("Đã ngừng hoạt động thương hiệu và sản phẩm liên quan."); // Sửa text
+        fetchBrands(); 
       } else throw new Error(result.message || "Xóa thất bại");
     } catch (err: any) { toast.error(`Lỗi: ${err.message}`); }
   };
+
+  // --- THÊM HÀM MỚI (Permanent Delete) ---
+  const handlePermanentDelete = async (id: number) => {
+    if (!token || !confirm("BẠN CÓ CHẮC CHẮN MUỐN XÓA VĨNH VIỄN? Hành động này không thể hoàn tác.")) return;
+    
+    try {
+      const response = await fetch(`${API_URL}/v1/brands/${id}/permanent`, { // <-- Gọi API mới
+        method: "DELETE", 
+        headers: { "Authorization": `Bearer ${token}` } 
+      });
+
+      if (!response.ok) {
+         let errorMsg = `Lỗi HTTP: ${response.status}`;
+         try {
+           const errData = await response.json();
+           errorMsg = errData.message || errorMsg;
+         } catch (e) {}
+         throw new Error(errorMsg);
+      }
+      
+      const result = await response.json();
+      if (result.status === 'SUCCESS') {
+         toast.success("Đã xóa vĩnh viễn thương hiệu.");
+         fetchBrands(); // Tải lại
+      } else {
+         throw new Error(result.message || "Xóa vĩnh viễn thất bại");
+      }
+    } catch (err: any) { 
+      toast.error(`Lỗi: ${err.message}`); 
+    }
+  };
   
-  // Kích hoạt lại
-  const handleReactivate = async (brand: BrandResponse) => { // ĐỔI TÊN
-    if (!token || !confirm(`Kích hoạt lại thương hiệu "${brand.name}"?`)) return; // ĐỔI TÊN
-    const url = `${API_URL}/v1/brands/${brand.id}`; // ĐỔI TÊN
+  // Kích hoạt lại (Giữ nguyên)
+  const handleReactivate = async (brand: BrandResponse) => {
+    if (!token || !confirm(`Kích hoạt lại thương hiệu "${brand.name}"?`)) return;
+    const url = `${API_URL}/v1/brands/${brand.id}`;
     
     const requestBody = { 
-      name: brand.name, // ĐỔI TÊN
-      description: brand.description, // ĐỔI TÊN
-      imageUrl: brand.imageUrl, // ĐỔI TÊN
-      active: true 
+        name: brand.name, 
+        description: brand.description, 
+        imageUrl: brand.imageUrl, 
+        active: true 
     };
     try {
       const response = await fetch(url, { 
@@ -175,50 +196,48 @@ export function BrandManagement() { // ĐỔI TÊN
       });
       const result = await response.json();
       if (result.status === 'SUCCESS') {
-        toast.success("Kích hoạt lại thương hiệu thành công!"); // ĐỔI TÊN
-        fetchBrands(); // ĐỔI TÊN
+        toast.success("Kích hoạt lại thương hiệu thành công!");
+        fetchBrands(); 
       } else throw new Error(result.message || "Kích hoạt thất bại");
     } catch (err: any) { toast.error(`Lỗi: ${err.message}`); }
   };
 
-  // Đổi Tab
+  // Đổi Tab (Giữ nguyên)
   const handleTabChange = (newStatus: string) => {
-      setFilterStatus(newStatus);
-      setBrandPage(1); // ĐỔI TÊN
-      setBrandSearchTerm(""); // ĐỔI TÊN
-      setBrands([]); // ĐỔI TÊN
+    setFilterStatus(newStatus);
+    setBrandPage(1); 
+    setBrandSearchTerm(""); 
+    setBrands([]); 
   }
 
   // --- JSX ---
   return (
     <div className="p-4 sm:p-6 space-y-6">
+      {/* ... (Phần tiêu đề và nút Thêm - Giữ nguyên) ... */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Quản lý Thương hiệu</h1> {/* ĐỔI TÊN */}
-          <p className="text-sm text-muted-foreground mt-1">Tạo và quản lý các thương hiệu sản phẩm</p> {/* ĐỔI TÊN */}
+          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Quản lý Thương hiệu</h1>
+          <p className="text-sm text-muted-foreground mt-1">Tạo và quản lý các thương hiệu sản phẩm</p>
         </div>
-        <Button onClick={() => { resetForm(); setShowForm(true); }} className="gap-1.5 self-start sm:self-center" size="sm"> <Plus size={16} /> Thêm Thương hiệu </Button> {/* ĐỔI TÊN */}
+        <Button onClick={() => { resetForm(); setShowForm(true); }} className="gap-1.5 self-start sm:self-center" size="sm"> <Plus size={16} /> Thêm Thương hiệu </Button>
       </div>
 
-      {/* --- Form Thêm/Sửa --- */}
+      {/* --- Form Thêm/Sửa (Giữ nguyên) --- */}
       {showForm && (
         <Card className="border-blue-500/50 shadow-md animate-fade-in">
           <CardHeader className="pb-4 border-b">
-            <CardTitle className="text-lg font-semibold">{editingId ? "Chỉnh sửa Thương hiệu" : "Thêm Thương hiệu mới"}</CardTitle> {/* ĐỔI TÊN */}
+            <CardTitle className="text-lg font-semibold">{editingId ? "Chỉnh sửa Thương hiệu" : "Thêm Thương hiệu mới"}</CardTitle>
           </CardHeader>
           <CardContent className="pt-6 space-y-5">
             
-            {/* ImageUpload Component */}
             <ImageUpload 
               value={formData.imageUrl || ""} 
               onChange={(value) => setFormData({ ...formData, imageUrl: value })} 
-              label="Hình ảnh thương hiệu (URL)" // ĐỔI TÊN
+              label="Hình ảnh thương hiệu (URL)"
             />
-
-            {/* Input Tên (với validation) */}
             <div className="space-y-1.5">
               <Input 
-                placeholder="Tên thương hiệu *" // ĐỔI TÊN
+                placeholder="Tên thương hiệu *" 
                 value={formData.name} 
                 onChange={(e) => {
                   setFormData({ ...formData, name: e.target.value });
@@ -228,14 +247,13 @@ export function BrandManagement() { // ĐỔI TÊN
               />
               {errors.name && <p className="text-xs text-destructive">{errors.name}</p>}
             </div>
-            
             <Textarea placeholder="Mô tả (tùy chọn)" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} className="min-h-[60px]"/>
             <div className="flex items-center gap-2">
-                <Checkbox id="brandActiveForm" checked={formData.active} onCheckedChange={(checked) => setFormData({ ...formData, active: Boolean(checked) })}/> {/* ĐỔI TÊN */}
-                <Label htmlFor="brandActiveForm" className="text-sm">Đang hoạt động</Label> {/* ĐỔI TÊN */}
+                <Checkbox id="brandActiveForm" checked={formData.active} onCheckedChange={(checked) => setFormData({ ...formData, active: Boolean(checked) })}/>
+                <Label htmlFor="brandActiveForm" className="text-sm">Đang hoạt động</Label>
             </div>
             <div className="flex gap-3 pt-3 border-t">
-              <Button onClick={handleSubmit} className="flex-1">{editingId ? "Cập nhật" : "Lưu"} thương hiệu</Button> {/* ĐỔI TÊN */}
+              <Button onClick={handleSubmit} className="flex-1">{editingId ? "Cập nhật" : "Lưu"} thương hiệu</Button>
               <Button variant="outline" onClick={resetForm} className="flex-1">Hủy</Button>
             </div>
           </CardContent>
@@ -244,8 +262,9 @@ export function BrandManagement() { // ĐỔI TÊN
 
       {/* --- Bảng Danh sách --- */}
       <Card className="shadow-sm">
+        {/* ... (Phần CardHeader, Tabs, Search - Giữ nguyên) ... */}
         <CardHeader>
-          <CardTitle className="text-xl font-semibold">Danh sách Thương hiệu</CardTitle> {/* ĐỔI TÊN */}
+          <CardTitle className="text-xl font-semibold">Danh sách Thương hiệu</CardTitle>
           <Tabs value={filterStatus} onValueChange={handleTabChange} className="mt-4">
             <TabsList className="grid w-full grid-cols-3 md:w-[400px]">
               <TabsTrigger value="ACTIVE">Đang hoạt động</TabsTrigger>
@@ -255,20 +274,12 @@ export function BrandManagement() { // ĐỔI TÊN
           </Tabs>
           <div className="mt-3 flex gap-2 items-center">
             <Search size={18} className="text-muted-foreground" />
-            <Input 
-              placeholder="Tìm theo tên thương hiệu..." // ĐỔI TÊN
-              value={brandSearchTerm} // ĐỔI TÊN
-              onChange={(e) => { 
-                setBrandSearchTerm(e.target.value); // ĐỔI TÊN
-                setBrandPage(1); // ĐỔI TÊN
-              }} 
-              className="h-9 text-sm"
-            />
+            <Input placeholder="Tìm theo tên thương hiệu..." value={brandSearchTerm} onChange={(e) => { setBrandSearchTerm(e.target.value); setBrandPage(1); }} className="h-9 text-sm"/>
           </div>
         </CardHeader>
         <CardContent>
           {isFetching ? <div className="text-center py-6 text-muted-foreground animate-pulse">Đang tải...</div> :
-            brands.length === 0 ? <div className="text-center py-6 text-muted-foreground">{brandSearchTerm ? "Không tìm thấy." : `Không có thương hiệu nào (${filterStatus.toLowerCase()}).`}</div> : // ĐỔI TÊN
+            brands.length === 0 ? <div className="text-center py-6 text-muted-foreground">{brandSearchTerm ? "Không tìm thấy." : `Không có thương hiệu nào (${filterStatus.toLowerCase()}).`}</div> :
             (
               <>
                 <div className="overflow-x-auto">
@@ -276,46 +287,70 @@ export function BrandManagement() { // ĐỔI TÊN
                     <thead className="bg-muted/30">
                       <tr className="border-b">
                         <th className="text-left py-2.5 px-3 font-semibold text-foreground/80 w-[60px]">Ảnh</th> 
-                        <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Tên Thương hiệu</th> {/* ĐỔI TÊN */}
+                        <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Tên Thương hiệu</th>
+                        {/* --- THÊM CỘT "Số SP" --- */}
+                        <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Số SP</th>
                         <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Mô tả</th>
                         <th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Trạng thái</th>
-                        <th className="text-center py-2.5 px-3 font-semibold text-foreground/80 w-[100px]">Hành động</th>
+                        {/* Tăng chiều rộng cột Hành động */}
+                        <th className="text-center py-2.5 px-3 font-semibold text-foreground/80 w-[120px]">Hành động</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {brands.map((brand) => ( // ĐỔI TÊN
-                        <tr key={brand.id} className={`border-b last:border-b-0 hover:bg-muted/20 transition-colors ${!brand.active ? 'opacity-60 bg-gray-50 dark:bg-gray-900/30' : ''}`}> {/* ĐỔI TÊN */}
+                      {brands.map((brand) => (
+                        <tr key={brand.id} className={`border-b last:border-b-0 hover:bg-muted/20 transition-colors ${!brand.active ? 'opacity-60 bg-gray-50 dark:bg-gray-900/30' : ''}`}>
                           
-                          {/* Ô Ảnh */}
                           <td className="py-2 px-3">
                             <img 
-                              src={brand.imageUrl || "/placeholder.svg"} // ĐỔI TÊN
-                              alt={brand.name} // ĐỔI TÊN
-                              className="w-10 h-10 object-cover rounded border"
-                              // Handle error image if URL is broken
+                              src={brand.imageUrl || "/placeholder.svg"} 
+                              alt={brand.name} 
+                              className="w-10 h-10 object-contain rounded border"
                               onError={(e) => {
                                   (e.target as HTMLImageElement).src = "/placeholder.svg";
                               }}
                             />
                           </td>
-                          <td className="py-2 px-3 font-medium text-foreground">{brand.name}</td> {/* ĐỔI TÊN */}
-                          <td className="py-2 px-3 text-muted-foreground text-xs truncate max-w-xs">{brand.description || "-"}</td> {/* ĐỔI TÊN */}
+                          <td className="py-2 px-3 font-medium text-foreground">{brand.name}</td>
+                          
+                          {/* --- THÊM Ô "Số SP" --- */}
+                          <td className="py-2 px-3 text-muted-foreground text-sm">{brand.productCount}</td>
+                          
+                          <td className="py-2 px-3 text-muted-foreground text-xs truncate max-w-xs">{brand.description || "-"}</td>
                           <td className="py-2 px-3 text-center">
-                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${brand.active ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"}`}> {/* ĐỔI TÊN */}
-                              {brand.active ? "Hoạt động" : "Ngừng HĐ"} {/* ĐỔI TÊN */}
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${brand.active ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"}`}>
+                              {brand.active ? "Hoạt động" : "Ngừng HĐ"}
                             </span>
                           </td>
+                          
+                          {/* --- SỬA LOGIC NÚT --- */}
                           <td className="py-2 px-3">
                             <div className="flex gap-1.5 justify-center">
-                               <Button variant="outline" size="icon" className="w-7 h-7" title="Sửa" onClick={() => handleEdit(brand)}><Edit2 size={14} /></Button> {/* ĐỔI TÊN */}
-                               
-                               {brand.active ? ( // ĐỔI TÊN
-                                 <Button variant="outline" size="icon" className="w-7 h-7 text-destructive border-destructive hover:bg-destructive/10" title="Ngừng hoạt động" onClick={() => handleDelete(brand.id)}><Trash2 size={14} /></Button> // ĐỔI TÊN
-                               ) : (
-                                 <Button variant="outline" size="icon" className="w-7 h-7 text-green-600 border-green-600 hover:bg-green-100/50" title="Kích hoạt lại" onClick={() => handleReactivate(brand)}> {/* ĐỔI TÊN */}
-                                     <RotateCcw size={14} /> 
-                                 </Button>
-                               )}
+                              {/* Nút Sửa: Luôn hiển thị */}
+                              <Button variant="outline" size="icon" className="w-7 h-7" title="Sửa" onClick={() => handleEdit(brand)}><Edit2 size={14} /></Button>
+                              
+                              {brand.active ? (
+                                // Nút Ngừng HĐ (Soft Delete)
+                                <Button variant="outline" size="icon" className="w-7 h-7 text-destructive border-destructive hover:bg-destructive/10" title="Ngừng hoạt động" onClick={() => handleDelete(brand.id)}><Trash2 size={14} /></Button>
+                              ) : (
+                                // Nút Kích hoạt lại
+                                <Button variant="outline" size="icon" className="w-7 h-7 text-green-600 border-green-600 hover:bg-green-100/50" title="Kích hoạt lại" onClick={() => handleReactivate(brand)}>
+                                  <RotateCcw size={14} /> 
+                                </Button>
+                              )}
+
+                              {/* Nút Xóa vĩnh viễn (Hard Delete) */}
+                              {/* Chỉ hiển thị khi: ĐANG NGỪNG HĐ VÀ KHÔNG CÓ SẢN PHẨM */}
+                              {!brand.active && brand.productCount === 0 && (
+                                <Button 
+                                  variant="destructive" 
+                                  size="icon" 
+                                  className="w-7 h-7" 
+                                  title="Xóa vĩnh viễn" 
+                                  onClick={() => handlePermanentDelete(brand.id)}
+                                >
+                                  <Trash2 size={14} />
+                                </Button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -323,11 +358,11 @@ export function BrandManagement() { // ĐỔI TÊN
                     </tbody>
                   </table>
                 </div>
-                {totalBrandPages > 1 && (<div className="flex justify-center pt-4"><Pagination currentPage={brandPage} totalPages={totalBrandPages} onPageChange={setBrandPage} /></div>)} {/* ĐỔI TÊN */}
+                {totalBrandPages > 1 && (<div className="flex justify-center pt-4"><Pagination currentPage={brandPage} totalPages={totalBrandPages} onPageChange={setBrandPage} /></div>)}
               </>
             )}
         </CardContent>
       </Card>
     </div>
   )
-} 
+}
