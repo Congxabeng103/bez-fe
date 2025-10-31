@@ -1,16 +1,57 @@
 "use client"
 
+import { useState, useEffect, useCallback } from "react"; // 1. Thêm hooks
 import { ProductCard } from "@/components/store/product-card"
 import { CampaignDiscountBanner } from "@/components/store/campaign-discount-banner"
 import { VoucherList } from "@/components/store/voucher-list"
-import { products } from "@/lib/products"
+// import { products } from "@/lib/products" // 2. Xóa mock data
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { translations as t } from "@/lib/translations"
+import { ProductResponseDTO } from "@/types/productDTO"; // 3. Import DTO
+import { toast } from "sonner"; // 4. Import toast
+import { Loader2 } from "lucide-react"; // 5. Import Loader
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
 
 export default function Home() {
-  const featuredProducts = products.slice(0, 8)
-  const categories = ["Áo phông", "Quần jean", "Áo hoodie", "Váy", "Áo khoác", "Áo len"]
+  // 6. State cho dữ liệu thật
+  const [featuredProducts, setFeaturedProducts] = useState<ProductResponseDTO[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  const categories = ["Áo phông", "Quần jean", "Áo hoodie", "Váy", "Áo khoác", "Áo len"]; // (Tạm thời giữ mock category)
+
+  // 7. Logic gọi API (chỉ lấy 8 sản phẩm mới nhất)
+  const fetchFeaturedProducts = useCallback(async () => {
+    setIsLoading(true);
+    const url = new URL(`${API_URL}/v1/products`);
+    url.searchParams.append("page", "0");
+    url.searchParams.append("size", "8"); // Chỉ lấy 8 sản phẩm
+    url.searchParams.append("sort", "createdAt,desc");
+    url.searchParams.append("status", "ACTIVE"); 
+
+    try {
+      const response = await fetch(url.toString()); 
+      if (!response.ok) throw new Error("Không thể tải sản phẩm nổi bật");
+      
+      const result = await response.json();
+      if (result.status === 'SUCCESS' && result.data) {
+        setFeaturedProducts(result.data.content);
+      } else {
+        toast.error(result.message || "Lỗi tải sản phẩm");
+      }
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // 8. Chạy API
+  useEffect(() => {
+    fetchFeaturedProducts();
+  }, [fetchFeaturedProducts]);
+
 
   return (
     <div className="min-h-screen">
@@ -37,18 +78,25 @@ export default function Home() {
         <VoucherList />
       </section>
 
-      {/* Featured Products Section */}
+      {/* Featured Products Section (Sửa) */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <div className="mb-12">
           <h2 className="text-3xl font-bold mb-2">{t.featuredProducts}</h2>
           <p className="text-muted-foreground">{t.checkOutLatest}</p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {featuredProducts.map((product) => (
-            <ProductCard key={product.id} product={product} />
-          ))}
-        </div>
+        {/* 9. Sửa Logic Hiển thị */}
+        {isLoading ? (
+          <div className="flex justify-center items-center h-48">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {featuredProducts.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+          </div>
+        )}
 
         <div className="text-center mt-12">
           <Link href="/products">

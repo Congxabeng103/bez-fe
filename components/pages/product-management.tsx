@@ -45,7 +45,6 @@ interface PromotionBrief { id: number; name: string; }
 interface ProductFormData {
   name: string; 
   description: string; 
-  price: number | string; 
   imageUrl: string;
   categoryId: string; 
   brandId: string; 
@@ -63,7 +62,7 @@ export function ProductManagement() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [formData, setFormData] = useState<ProductFormData>({
-    name: "", description: "", price: "", imageUrl: "", 
+    name: "", description: "", imageUrl: "", 
     categoryId: "", brandId: "", promotionId: "", 
     active: true,
   });
@@ -147,7 +146,7 @@ export function ProductManagement() {
     setShowForm(false); setEditingId(null);
     setFormWarning(null); 
     setErrors({}); 
-    setFormData({ name: "", description: "", price: "", imageUrl: "", categoryId: "", brandId: "", promotionId: "", active: true });
+    setFormData({ name: "", description: "", imageUrl: "", categoryId: "", brandId: "", promotionId: "", active: true });
   }
 
   // Submit Form
@@ -155,11 +154,9 @@ export function ProductManagement() {
     if (!token) return toast.error("Hết hạn đăng nhập.");
     const newErrors: Partial<Record<keyof ProductFormData, string>> = {};
     const name = formData.name.trim();
-    const priceValue = Number(formData.price);
     const categoryId = formData.categoryId;
     if (!name) { newErrors.name = "Tên sản phẩm là bắt buộc."; } 
     else if (name.length < 3) { newErrors.name = "Tên sản phẩm phải có ít nhất 3 ký tự."; }
-    if (isNaN(priceValue) || priceValue <= 0) { newErrors.price = "Giá gốc phải là số hợp lệ và lớn hơn 0."; }
     if (!categoryId) { newErrors.categoryId = "Vui lòng chọn danh mục."; }
     setErrors(newErrors); 
     if (Object.keys(newErrors).length > 0) {
@@ -172,7 +169,6 @@ export function ProductManagement() {
     const requestBody = {
         name: name, 
         description: formData.description.trim(),
-        price: priceValue, 
         imageUrl: formData.imageUrl || null,
         categoryId: Number(categoryId) || null,
         brandId: Number(formData.brandId) || null,
@@ -224,7 +220,7 @@ export function ProductManagement() {
     setFormWarning(warning); 
     setFormData({
         name: product.name, description: product.description || "",
-        price: product.price, imageUrl: product.imageUrl || "",
+        imageUrl: product.imageUrl || "",
         categoryId: product.categoryId ? String(product.categoryId) : "",
         brandId: product.brandId ? String(product.brandId) : "",
         promotionId: product.promotionId ? String(product.promotionId) : "",
@@ -368,19 +364,7 @@ export function ProductManagement() {
                 />
                 {errors.name && <p className="text-xs text-destructive">{errors.name}</p>} 
               </div>
-              <div className="space-y-1.5">
-                <Input 
-                  placeholder="Giá gốc *" 
-                  type="number" 
-                  value={formData.price} 
-                  onChange={(e) => {
-                    setFormData({ ...formData, price: e.target.value });
-                    if (errors.price) setErrors(prev => ({ ...prev, price: undefined }));
-                  }} 
-                  min="1"
-                  className={errors.price ? "border-destructive focus-visible:ring-destructive" : ""}
-                />
-                {errors.price && <p className="text-xs text-destructive">{errors.price}</p>}
+              <div className="space-y-1.5">             
               </div>
             </div>
             <Textarea placeholder="Mô tả sản phẩm" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })}/>

@@ -29,6 +29,9 @@ interface VariantResponse {
   imageUrl: string; attributes: Record<string, string>; createdAt: string;
   active: boolean; 
   orderCount: number; // <-- THÊM DÒNG NÀY
+  // --- THÊM 2 DÒNG NÀY ---
+  salePrice: number | null; 
+  isPromotionStillValid: boolean | null;
 }
 interface Combination {
   attributes: Record<string, string>; sku: string; price: number | string;
@@ -452,7 +455,19 @@ export function VariantManagement() {
                       {productVariants.map((variant) => (
                         <tr key={variant.id} className={`border-b last:border-b-0 hover:bg-muted/20 transition-colors ${!variant.active ? 'opacity-60 bg-gray-50 dark:bg-gray-900/30' : ''}`}>
                           {/* --- SỬA TBODY: Thêm <td> "Đã bán", Sửa <td> "Hành động" --- */}
-                          <td className="py-2 px-3"><img src={variant.imageUrl || "/placeholder.svg"} alt={variant.sku} className="w-10 h-10 object-cover rounded border"/></td><td className="py-2 px-3 align-top"><div className="text-xs space-y-0.5 max-w-[180px] break-words text-foreground/90">{Object.entries(variant.attributes).map(([key, value]) => (<div key={key}><span className="font-medium text-foreground/70">{key}:</span> {value}</div>))}</div></td><td className="py-2 px-3 font-medium text-foreground">{variant.sku}</td><td className="py-2 px-3 text-right">{variant.price.toLocaleString('vi-VN')}₫</td><td className="py-2 px-3 text-right">{variant.stockQuantity}</td>
+                          <td className="py-2 px-3"><img src={variant.imageUrl || "/placeholder.svg"} alt={variant.sku} className="w-10 h-10 object-cover rounded border"/></td><td className="py-2 px-3 align-top"><div className="text-xs space-y-0.5 max-w-[180px] break-words text-foreground/90">{Object.entries(variant.attributes).map(([key, value]) => (<div key={key}><span className="font-medium text-foreground/70">{key}:</span> {value}</div>))}</div></td><td className="py-2 px-3 font-medium text-foreground">{variant.sku}</td>{/* --- SỬA KHỐI NÀY (Cột Giá) --- */}
+                                <td className="py-2 px-3 text-right">
+                                    {/* Kiểm tra xem có giá sale VÀ KM còn hợp lệ không */}
+                                    {variant.isPromotionStillValid && variant.salePrice != null && variant.salePrice < variant.price ? (
+                                        <div className="flex flex-col items-end">
+                                            <span className="font-semibold text-destructive">{variant.salePrice.toLocaleString('vi-VN')}₫</span>
+                                            <span className="text-xs text-muted-foreground line-through">{variant.price.toLocaleString('vi-VN')}₫</span>
+                                        </div>
+                                    ) : (
+                                        <span>{variant.price.toLocaleString('vi-VN')}₫</span>
+                                    )}
+                                </td>
+                                {/* --- KẾT THÚC SỬA --- */}<td className="py-2 px-3 text-right">{variant.stockQuantity}</td>
                           
                           {/* Thêm Ô "Đã bán" */}
                           <td className="py-2 px-3 text-right text-muted-foreground">{variant.orderCount}</td>

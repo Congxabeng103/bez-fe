@@ -1,65 +1,123 @@
-"use client"
+"use client";
 
-import { useState, useMemo } from "react"
-import { ProductCard } from "@/components/store/product-card"
-import { Pagination } from "@/components/store/pagination"
-import { products } from "@/lib/products"
-import { Search } from "lucide-react"
-import { translations as t } from "@/lib/translations"
+import { useState, useEffect, useCallback } from "react"; // Bỏ useMemo
+import { ProductCard } from "@/components/store/product-card";
+import { Pagination } from "@/components/store/pagination";
+import { Search, Loader2 } from "lucide-react";
+import { translations as t } from "@/lib/translations";
+import { useAuthStore } from "@/lib/authStore";
+import { toast } from "sonner";
+import { ProductResponseDTO } from "@/types/productDTO";
 
-const ITEMS_PER_PAGE = 12
+// Interface cho Category
+interface Category {
+  id: number;
+  name: string;
+}
+
+const ITEMS_PER_PAGE = 12;
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+const MAX_PRICE = 5000000; // Định nghĩa giá tối đa
 
 export default function ProductsPage() {
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
-  const [sortBy, setSortBy] = useState("featured")
-  const [priceRange, setPriceRange] = useState([0, 2000000])
-  const [searchQuery, setSearchQuery] = useState("")
-  const [currentPage, setCurrentPage] = useState(1)
+  const { token } = useAuthStore.getState();
 
-  const categories = Array.from(new Set(products.map((p) => p.category)))
+  const [products, setProducts] = useState<ProductResponseDTO[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const filteredProducts = useMemo(() => {
-    let filtered = products
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState("createdAt,desc");
+  const [priceRange, setPriceRange] = useState([0, MAX_PRICE]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(0);
 
-    if (searchQuery.trim()) {
-      filtered = filtered.filter(
-        (p) =>
-          p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          p.description.toLowerCase().includes(searchQuery.toLowerCase()),
-      )
+  // --- LOGIC GỌI API ĐÚNG (Đã sửa) ---
+  const fetchProducts = useCallback(async () => {
+    setIsLoading(true);
+    const url = new URL(`${API_URL}/v1/products`);
+    url.searchParams.append("page", (currentPage - 1).toString());
+    url.searchParams.append("size", ITEMS_PER_PAGE.toString());
+    url.searchParams.append("sort", sortBy);
+    url.searchParams.append("status", "ACTIVE"); // Trang shop chỉ lấy Active
+
+    if (searchQuery) {
+      url.searchParams.append("search", searchQuery);
     }
 
-    // Filter by category
+    // Gửi bộ lọc lên backend
     if (selectedCategory) {
-      filtered = filtered.filter((p) => p.category === selectedCategory)
+      url.searchParams.append("categoryName", selectedCategory);
+    }
+    if (priceRange[0] > 0) {
+      url.searchParams.append("minPrice", priceRange[0].toString());
+    }
+    if (priceRange[1] < MAX_PRICE) {
+      url.searchParams.append("maxPrice", priceRange[1].toString());
     }
 
-    // Filter by price
-    filtered = filtered.filter((p) => p.price >= priceRange[0] && p.price <= priceRange[1])
+    try {
+      const response = await fetch(url.toString());
+      if (!response.ok) throw new Error("Không thể tải sản phẩm");
 
-    // Sort
-    if (sortBy === "price-low") {
-      filtered = [...filtered].sort((a, b) => a.price - b.price)
-    } else if (sortBy === "price-high") {
-      filtered = [...filtered].sort((a, b) => b.price - a.price)
-    } else if (sortBy === "rating") {
-      filtered = [...filtered].sort((a, b) => b.rating - a.rating)
-    } else if (sortBy === "newest") {
-      filtered = [...filtered].reverse()
+      const result = await response.json();
+      if (result.status === 'SUCCESS' && result.data) {
+        setProducts(result.data.content);
+        setTotalPages(result.data.totalPages);
+      } else {
+        toast.error(result.message || "Lỗi tải sản phẩm");
+        setProducts([]); // Xóa sản phẩm cũ nếu có lỗi
+        setTotalPages(0);
+      }
+    } catch (err: any) {
+      toast.error(err.message);
+      setProducts([]);
+      setTotalPages(0);
+    } finally {
+      setIsLoading(false);
     }
+    // Thêm các state lọc vào dependency array
+  }, [currentPage, sortBy, searchQuery, selectedCategory, priceRange]);
 
-    return filtered
-  }, [selectedCategory, sortBy, priceRange, searchQuery])
+  // Logic gọi API Category (Giữ nguyên)
+  const fetchCategories = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_URL}/v1/categories/all-brief`);
+      if (!response.ok) throw new Error("Không thể tải danh mục");
 
-  const totalPages = Math.ceil(filteredProducts.length / ITEMS_PER_PAGE)
-  const paginatedProducts = filteredProducts.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE)
+      const result = await response.json();
+      if (result.status === 'SUCCESS' && result.data) {
+        setCategories(result.data);
+      } else {
+        toast.error(result.message || "Lỗi tải danh mục");
+      }
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  }, []);
+
+  // Chạy API khi filter thay đổi
+  useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts]); // fetchProducts giờ đã phụ thuộc vào các bộ lọc
+
+  // Chạy API Category (chỉ 1 lần)
+  useEffect(() => {
+    fetchCategories();
+  }, [fetchCategories]);
+
+  // --- ĐÃ BỎ `useMemo` ---
+  // 'products' giờ đã là dữ liệu được lọc chính xác từ API
+  const filteredProducts = products;
 
   const handlePageChange = (page: number) => {
-    setCurrentPage(page)
-    window.scrollTo({ top: 0, behavior: "smooth" })
+    setCurrentPage(page);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   return (
+    
     <div className="min-h-screen bg-background">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <h1 className="text-4xl font-bold mb-8">{t.shop}</h1>
@@ -68,6 +126,7 @@ export default function ProductsPage() {
           {/* Sidebar Filters */}
           <div className="lg:col-span-1">
             <div className="bg-card rounded-lg p-6 border border-border sticky top-20">
+              {/* Tìm kiếm */}
               <div className="mb-6">
                 <h3 className="font-semibold mb-3">Tìm kiếm</h3>
                 <div className="relative">
@@ -77,8 +136,8 @@ export default function ProductsPage() {
                     placeholder={t.searchProducts}
                     value={searchQuery}
                     onChange={(e) => {
-                      setSearchQuery(e.target.value)
-                      setCurrentPage(1)
+                      setSearchQuery(e.target.value);
+                      setCurrentPage(1); // Reset trang khi tìm kiếm
                     }}
                     className="w-full pl-10 pr-3 py-2 border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary"
                   />
@@ -90,10 +149,7 @@ export default function ProductsPage() {
                 <h3 className="font-semibold mb-4">Danh mục</h3>
                 <div className="space-y-2">
                   <button
-                    onClick={() => {
-                      setSelectedCategory(null)
-                      setCurrentPage(1)
-                    }}
+                    onClick={() => { setSelectedCategory(null); setCurrentPage(1); }}
                     className={`block w-full text-left px-3 py-2 rounded transition ${
                       selectedCategory === null ? "bg-primary text-primary-foreground" : "hover:bg-muted"
                     }`}
@@ -102,16 +158,13 @@ export default function ProductsPage() {
                   </button>
                   {categories.map((category) => (
                     <button
-                      key={category}
-                      onClick={() => {
-                        setSelectedCategory(category)
-                        setCurrentPage(1)
-                      }}
+                      key={category.id}
+                      onClick={() => { setSelectedCategory(category.name); setCurrentPage(1); }}
                       className={`block w-full text-left px-3 py-2 rounded transition ${
-                        selectedCategory === category ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+                        selectedCategory === category.name ? "bg-primary text-primary-foreground" : "hover:bg-muted"
                       }`}
                     >
-                      {category}
+                      {category.name}
                     </button>
                   ))}
                 </div>
@@ -124,7 +177,8 @@ export default function ProductsPage() {
                   <input
                     type="range"
                     min="0"
-                    max="2000000"
+                    max={MAX_PRICE}
+                    step="50000"
                     value={priceRange[1]}
                     onChange={(e) => {
                       setPriceRange([priceRange[0], Number(e.target.value)])
@@ -150,11 +204,9 @@ export default function ProductsPage() {
                   }}
                   className="w-full px-3 py-2 border border-border rounded-lg bg-background"
                 >
-                  <option value="featured">Nổi bật</option>
-                  <option value="price-low">Giá: Thấp đến Cao</option>
-                  <option value="price-high">Giá: Cao đến Thấp</option>
-                  <option value="rating">Xếp hạng cao nhất</option>
-                  <option value="newest">Mới nhất</option>
+                  <option value="createdAt,desc">Mới nhất</option>
+                  <option value="price,asc">Giá: Thấp đến Cao</option>
+                  <option value="price,desc">Giá: Cao đến Thấp</option>
                 </select>
               </div>
             </div>
@@ -164,14 +216,18 @@ export default function ProductsPage() {
           <div className="lg:col-span-3">
             <div className="mb-6 flex justify-between items-center">
               <p className="text-muted-foreground">
-                Hiển thị {paginatedProducts.length} / {filteredProducts.length} sản phẩm
+                Hiển thị {filteredProducts.length} kết quả
               </p>
             </div>
 
-            {paginatedProducts.length > 0 ? (
+            {isLoading ? (
+              <div className="flex justify-center items-center h-64">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : filteredProducts.length > 0 ? (
               <>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {paginatedProducts.map((product) => (
+                  {filteredProducts.map((product) => (
                     <ProductCard key={product.id} product={product} />
                   ))}
                 </div>
@@ -182,12 +238,12 @@ export default function ProductsPage() {
               </>
             ) : (
               <div className="text-center py-12">
-                <p className="text-muted-foreground text-lg">Không tìm thấy sản phẩm phù hợp với bộ lọc của bạn.</p>
+                <p className="text-muted-foreground text-lg">Không tìm thấy sản phẩm phù hợp.</p>
               </div>
             )}
           </div>
         </div>
       </div>
     </div>
-  )
+  );
 }

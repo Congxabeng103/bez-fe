@@ -1,137 +1,85 @@
-"use client"
+// File: hooks/use-auth.ts (Viết lại)
+"use client";
 
-import { useState, useEffect } from "react"
+import { useAuthStore, AuthenticatedUser } from "@/lib/authStore";
+import { useState, useEffect } from "react";
 
+// (Interface User cũ của v0.dev)
 export interface User {
-  id: string
-  email: string
-  name: string
-  phone: string
-  address: string
-  city: string
-  zipCode: string
-  country: string
-  createdAt: string
+  id: string
+  email: string
+  name: string
+  phone: string
+  address: string
+  city: string
+  zipCode: string
+  country: string
+  createdAt: string
 }
-
 export interface AuthState {
-  user: User | null
-  isLoggedIn: boolean
+  user: User | null
+  isLoggedIn: boolean
 }
+// ---
 
+// Hook này giả lập 'useAuth' của v0.dev
+// nhưng sử dụng 'useAuthStore' (Zustand) thật
 export function useAuth() {
-  const [authState, setAuthState] = useState<AuthState>({
-    user: null,
-    isLoggedIn: false,
-  })
-  const [isLoaded, setIsLoaded] = useState(false)
+  const { user, isAuthenticated, login, logout, register } = useAuthStore();
+  const [isLoaded, setIsLoaded] = useState(false);
 
-  // Load user from localStorage on mount
   useEffect(() => {
-    const savedUser = localStorage.getItem("user")
-    if (savedUser) {
-      const user = JSON.parse(savedUser)
-      setAuthState({
-        user,
-        isLoggedIn: true,
-      })
+    // Giúp tránh lỗi Hydration
+    setIsLoaded(true); 
+  }, []);
+
+  // Chuyển đổi 'user' của Zustand (10 trường) 
+  // sang 'user' của v0.dev (8 trường)
+  const v0User = user ? {
+    id: String(user.id),
+    email: user.email,
+    name: user.name,
+    phone: user.phone || "",
+    address: "", // (Zustand không có trường này)
+    city: "",
+    zipCode: "",
+    country: "",
+    createdAt: new Date().toISOString(), // (Dùng ngày giả)
+  } : null;
+
+  // (Hàm login/register giả lập để khớp interface)
+  const mockLogin = async (email: string, pass: string) => {
+    try {
+        await login(email, pass);
+        return { success: true };
+    } catch (err: any) {
+        return { success: false, error: err.message };
     }
-    setIsLoaded(true)
-  }, [])
-
-  const register = (email: string, password: string, name: string) => {
-    // Check if user already exists
-    const existingUsers = JSON.parse(localStorage.getItem("users") || "[]")
-    if (existingUsers.some((u: any) => u.email === email)) {
-      return { success: false, error: "Email đã được đăng ký" }
+  };
+  const mockRegister = async (email: string, pass: string, name: string) => {
+     try {
+        // (Tách tên cho authStore)
+        const nameParts = name.trim().split(' ');
+        const firstName = nameParts.pop() || ""; // Tên
+        const lastName = nameParts.join(' '); // Họ
+        
+        await register(firstName, lastName, email, pass);
+        return { success: true };
+    } catch (err: any) {
+        return { success: false, error: err.message };
     }
-
-    const newUser: User = {
-      id: Math.random().toString(36).substr(2, 9),
-      email,
-      name,
-      phone: "",
-      address: "",
-      city: "",
-      zipCode: "",
-      country: "",
-      createdAt: new Date().toISOString(),
-    }
-
-    // Store user credentials
-    existingUsers.push({ email, password })
-    localStorage.setItem("users", JSON.stringify(existingUsers))
-
-    // Log in the user
-    localStorage.setItem("user", JSON.stringify(newUser))
-    setAuthState({
-      user: newUser,
-      isLoggedIn: true,
-    })
-
-    return { success: true }
-  }
-
-  const login = (email: string, password: string) => {
-    const demoAccounts = [
-      { email: "demo@example.com", password: "demo123" },
-      { email: "user@example.com", password: "user123" },
-    ]
-
-    const users = JSON.parse(localStorage.getItem("users") || "[]")
-    const allUsers = [...users, ...demoAccounts]
-    const user = allUsers.find((u: any) => u.email === email && u.password === password)
-
-    if (!user) {
-      return { success: false, error: "Email hoặc mật khẩu không hợp lệ" }
-    }
-
-    const userData: User = {
-      id: Math.random().toString(36).substr(2, 9),
-      email,
-      name: email.split("@")[0],
-      phone: "",
-      address: "",
-      city: "",
-      zipCode: "",
-      country: "",
-      createdAt: new Date().toISOString(),
-    }
-
-    localStorage.setItem("user", JSON.stringify(userData))
-    setAuthState({
-      user: userData,
-      isLoggedIn: true,
-    })
-
-    return { success: true }
-  }
-
-  const logout = () => {
-    localStorage.removeItem("user")
-    setAuthState({
-      user: null,
-      isLoggedIn: false,
-    })
-  }
-
-  const updateProfile = (updates: Partial<User>) => {
-    if (!authState.user) return
-
-    const updatedUser = { ...authState.user, ...updates }
-    localStorage.setItem("user", JSON.stringify(updatedUser))
-    setAuthState({
-      user: updatedUser,
-      isLoggedIn: true,
-    })
-  }
+  };
 
   return {
-    ...authState,
-    register,
-    login,
-    logout,
-    updateProfile,
-    isLoaded,
-  }
+    user: v0User,
+    isLoggedIn: isAuthenticated,
+    isLoaded: isLoaded,
+    login: mockLogin, // (Truyền hàm login thật)
+    logout: logout, // (Truyền hàm logout thật)
+    register: mockRegister, // (Truyền hàm register thật)
+    updateProfile: (updates: Partial<User>) => {
+        // (Logic này chưa được hỗ trợ, nhưng giữ để không crash)
+        console.warn("updateProfile in useAuth (mock) is not fully implemented");
+    },
+  };
 }
