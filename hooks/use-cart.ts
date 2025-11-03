@@ -1,114 +1,222 @@
-"use client"
+// (path: src/hooks/use-cart.ts)
 
-import { useState, useEffect } from "react"
+"use client";
 
-export interface CartItem {
-  id: string
-  name: string
-  price: number
-  image: string
-  quantity: number
-  size: string
-  color: string
-  selected: boolean
+import { create } from "zustand"; // Import 'create' từ Zustand
+import { toast } from "sonner";
+import { useAuthStore } from "@/lib/authStore"; // Import store auth của bạn
+import { CartResponseDTO } from "@/types/cartDTO";
+
+// Định nghĩa CartItem của FE (thêm 'selected' cục bộ)
+export interface CartItem extends CartResponseDTO {
+  selected: boolean;
 }
 
-export function useCart() {
-  const [cart, setCart] = useState<CartItem[]>([])
-  const [isLoaded, setIsLoaded] = useState(false)
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
 
-  // Load cart from localStorage on mount
-  useEffect(() => {
-    const savedCart = localStorage.getItem("cart")
-    if (savedCart) {
-      setCart(JSON.parse(savedCart))
-    }
-    setIsLoaded(true)
-  }, [])
-
-  // Save cart to localStorage whenever it changes
-  useEffect(() => {
-    if (isLoaded) {
-      localStorage.setItem("cart", JSON.stringify(cart))
-    }
-  }, [cart, isLoaded])
-
-  const addToCart = (item: CartItem) => {
-    setCart((prevCart) => {
-      const existingItem = prevCart.find(
-        (cartItem) => cartItem.id === item.id && cartItem.size === item.size && cartItem.color === item.color,
-      )
-
-      if (existingItem) {
-        return prevCart.map((cartItem) =>
-          cartItem === existingItem ? { ...cartItem, quantity: cartItem.quantity + item.quantity } : cartItem,
-        )
-      }
-
-      return [...prevCart, { ...item, selected: true }]
-    })
+/**
+ * Helper function để gọi API thủ công
+ * Tự động lấy token từ useAuthStore
+ */
+const manualFetchApi = async (url: string, options: RequestInit = {}) => {
+  const { token } = useAuthStore.getState();
+  if (!token) {
+    throw new Error("Bạn cần đăng nhập để thực hiện hành động này");
   }
 
-  const removeFromCart = (id: string, size: string, color: string) => {
-    setCart((prevCart) => prevCart.filter((item) => !(item.id === id && item.size === size && item.color === color)))
+  const headers = new Headers(options.headers || {});
+  headers.set("Authorization", `Bearer ${token}`);
+  if (!headers.has("Content-Type") && options.body) {
+    headers.set("Content-Type", "application/json");
   }
 
-  const updateQuantity = (id: string, size: string, color: string, quantity: number) => {
+  const response = await fetch(`${API_URL}${url}`, {
+    ...options,
+    headers,
+  });
+
+  const responseData = await response.json();
+  if (!response.ok || responseData.status !== 'SUCCESS') {
+    throw new Error(responseData.message || "Có lỗi xảy ra từ máy chủ");
+  }
+  return responseData.data; // Chỉ trả về 'data'
+};
+
+
+// --- TẠO STATE TOÀN CỤC (GLOBAL STORE) ---
+
+// 1. Định nghĩa State và Actions
+interface CartState {
+  cart: CartItem[];
+  isLoaded: boolean;
+  isMutating: boolean;
+  
+  // Actions
+  fetchCart: () => Promise<void>;
+  addToCart: (variantId: number, quantity: number) => Promise<void>;
+  updateQuantity: (variantId: number, quantity: number) => Promise<void>;
+  removeFromCart: (variantId: number) => Promise<void>;
+  toggleSelected: (variantId: number) => void;
+  selectAll: () => void;
+  deselectAll: () => void;
+  clearCart: () => void;
+
+  // Getters (Hàm tính toán)
+  getTotalPrice: () => number;
+  getSelectedCount: () => number;
+  getTotalItemsInCart: () => number; // Tính tổng SỐ LƯỢNG (cho icon header)
+}
+
+// 2. Tạo store (đổi tên từ 'useCart' thành 'useCartStore' bên trong,
+// nhưng export vẫn là 'useCart' để các file cũ không bị lỗi)
+export const useCart = create<CartState>((set, get) => ({
+  // --- State mặc định ---
+  cart: [],
+  isLoaded: false,
+  isMutating: false,
+
+  // --- ACTIONS (Cập nhật state) ---
+  
+  fetchCart: async () => {
+    // Luôn kiểm tra auth từ store
+    const { isAuthenticated } = useAuthStore.getState();
+    if (!isAuthenticated) {
+      set({ cart: [], isLoaded: true }); // Nếu không login, set giỏ rỗng
+      return;
+    }
+
+    try {
+      const data: CartResponseDTO[] = await manualFetchApi("/v1/cart");
+      const cartWithSelection = data.map((item) => ({
+        ...item,
+        selected: true, // Mặc định chọn tất cả
+      }));
+      set({ cart: cartWithSelection, isLoaded: true });
+    } catch (error: any) {
+      console.error("Lỗi khi tải giỏ hàng:", error.message);
+      set({ cart: [], isLoaded: true }); // Set rỗng nếu lỗi
+    }
+  },
+
+  addToCart: async (variantId, quantity) => {
+    set({ isMutating: true });
+    try {
+      await manualFetchApi("/v1/cart/add", {
+        method: "POST",
+        body: JSON.stringify({ variantId, quantity }),
+      });
+      toast.success("Đã thêm vào giỏ hàng!");
+      await get().fetchCart(); // Tải lại state toàn cục
+    } catch (error: any) {
+      toast.error(error.message || "Lỗi khi thêm sản phẩm");
+    } finally {
+      set({ isMutating: false });
+    }
+  },
+
+  updateQuantity: async (variantId, quantity) => {
     if (quantity <= 0) {
-      removeFromCart(id, size, color)
-      return
+      await get().removeFromCart(variantId);
+      return;
     }
+    set({ isMutating: true });
+    try {
+      await manualFetchApi("/v1/cart/update", {
+        method: "PUT",
+        body: JSON.stringify({ variantId, quantity }),
+      });
+      await get().fetchCart(); // Tải lại state toàn cục
+    } catch (error: any) {
+      toast.error(error.message || "Lỗi khi cập nhật");
+      await get().fetchCart(); // Tải lại (reset) nếu lỗi
+    } finally {
+      set({ isMutating: false });
+    }
+  },
 
-    setCart((prevCart) =>
-      prevCart.map((item) =>
-        item.id === id && item.size === size && item.color === color ? { ...item, quantity } : item,
+  removeFromCart: async (variantId) => {
+    set({ isMutating: true });
+    try {
+      await manualFetchApi(`/v1/cart/remove/${variantId}`, {
+        method: "DELETE",
+      });
+      toast.success("Đã xóa sản phẩm");
+      await get().fetchCart(); // Tải lại state toàn cục
+    } catch (error: any) {
+      toast.error(error.message || "Lỗi khi xóa");
+    } finally {
+      set({ isMutating: false });
+    }
+  },
+
+  // --- ACTIONS LOCAL (Chỉ sửa state, không gọi API) ---
+  
+  toggleSelected: (variantId) => {
+    set((state) => ({
+      cart: state.cart.map((item) =>
+        item.variantId === variantId ? { ...item, selected: !item.selected } : item
       ),
-    )
-  }
+    }));
+  },
 
-  const toggleSelected = (id: string, size: string, color: string) => {
-    setCart((prevCart) =>
-      prevCart.map((item) =>
-        item.id === id && item.size === size && item.color === color ? { ...item, selected: !item.selected } : item,
-      ),
-    )
-  }
+  selectAll: () => {
+    set((state) => ({
+      cart: state.cart.map((item) => ({ ...item, selected: true })),
+    }));
+  },
 
-  const selectAll = () => {
-    setCart((prevCart) => prevCart.map((item) => ({ ...item, selected: true })))
-  }
+  deselectAll: () => {
+    set((state) => ({
+      cart: state.cart.map((item) => ({ ...item, selected: false })),
+    }));
+  },
 
-  const deselectAll = () => {
-    setCart((prevCart) => prevCart.map((item) => ({ ...item, selected: false })))
-  }
+  clearCart: () => {
+    // TODO: Nên gọi API xóa hết
+    set({ cart: [] });
+    toast.success("Đã xóa giỏ hàng (local)");
+  },
 
-  const clearCart = () => {
-    setCart([])
-  }
+  // --- GETTERS (Hàm tính toán) ---
+  
+  getTotalPrice: () => {
+    const { cart } = get(); // Lấy state 'cart' hiện tại
+    return cart.reduce(
+      (total, item) => (item.selected ? total + item.currentPrice * item.quantity : total),
+      0
+    );
+  },
 
-  const getTotalPrice = () => {
-    return cart.reduce((total, item) => (item.selected ? total + item.price * item.quantity : total), 0)
-  }
+  getSelectedCount: () => {
+    const { cart } = get();
+    return cart.filter((item) => item.selected).length;
+  },
 
-  const getTotalItems = () => {
-    return cart.reduce((total, item) => (item.selected ? total + item.quantity : total), 0)
-  }
+  // Tính TỔNG SỐ LƯỢNG (5 áo + 2 quần = 7)
+  getTotalItemsInCart: () => {
+    const { cart } = get();
+    return cart.reduce((total, item) => total + item.quantity, 0);
+  },
+}));
 
-  const getSelectedCount = () => {
-    return cart.filter((item) => item.selected).length
-  }
 
-  return {
-    cart,
-    addToCart,
-    removeFromCart,
-    updateQuantity,
-    toggleSelected,
-    selectAll,
-    deselectAll,
-    clearCart,
-    getTotalPrice,
-    getTotalItems,
-    getSelectedCount,
+// --- TỰ ĐỘNG ĐỒNG BỘ VỚI AUTH STORE ---
+
+// 1. Lắng nghe thay đổi của Auth Store
+useAuthStore.subscribe((state, prevState) => {
+  // Khi vừa đăng nhập (từ false -> true)
+  if (state.isAuthenticated && !prevState.isAuthenticated) {
+    useCart.getState().fetchCart(); // Tự động tải giỏ hàng
   }
+  // Khi vừa đăng xuất (từ true -> false)
+  if (!state.isAuthenticated && prevState.isAuthenticated) {
+    useCart.setState({ cart: [], isLoaded: true }); // Xóa sạch giỏ hàng
+  }
+});
+
+// 2. Tải giỏ hàng lần đầu khi load trang (nếu đã đăng nhập)
+// (Code này chạy 1 lần khi app khởi động)
+const { isAuthenticated } = useAuthStore.getState();
+if (isAuthenticated) {
+  useCart.getState().fetchCart();
 }

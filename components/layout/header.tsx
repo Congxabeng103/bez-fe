@@ -18,14 +18,10 @@ export function Header() {
   const [searchQuery, setSearchQuery] = useState("");
   // const [isAuthModalOpen, setIsAuthModalOpen] = useState(false); // (Xóa)
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
-  const { getTotalItems } = useCart();
-  
-  // --- 3. SỬA LOGIC AUTH ---
+const { cart, isLoaded: isCartLoaded } = useCart();  // --- 3. SỬA LOGIC AUTH ---
   // Dùng hook (thay vì getState) để component tự re-render khi đăng nhập/đăng xuất
   const { isAuthenticated: isLoggedIn, user, logout } = useAuthStore(); 
-  const totalItems = getTotalItems();
-  
-  // State 'isLoaded' dùng để tránh lỗi Hydration (Server-side rendering)
+const totalItems = cart.length;  // State 'isLoaded' dùng để tránh lỗi Hydration (Server-side rendering)
   // Server sẽ render (isLoaded=false), Client render (isLoaded=false), 
   // sau đó useEffect chạy (isLoaded=true) và hiện đúng UI
   const [isLoaded, setIsLoaded] = useState(false);

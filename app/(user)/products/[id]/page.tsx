@@ -1,11 +1,13 @@
+// (path: app/(routes)/product/[id]/page.tsx)
+
 "use client";
 
-import { useState, useEffect, Suspense } from "react"; 
+import { useState, useEffect, Suspense } from "react";
 import Image from "next/image";
 import { Star, ShoppingCart, Heart, Loader2 } from "lucide-react";
-import { useCart } from "@/hooks/use-cart";
+import { useCart } from "@/hooks/use-cart"; 
 import { useWishlist } from "@/hooks/use-wishlist";
-import { useAuth } from "@/hooks/use-auth"; // (Dùng hook giả lập đã sửa)
+import { useAuthStore } from "@/lib/authStore"; // (Store auth của bạn)
 import { useReviews } from "@/hooks/use-reviews";
 import { Button } from "@/components/ui/button";
 import { ProductCard } from "@/components/store/product-card";
@@ -14,9 +16,8 @@ import { ProductReviews } from "@/components/store/product-reviews";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { toast } from "sonner";
-// Import DTOs thật
-import { ProductResponseDTO, ProductDetailResponseDTO } from "@/types/productDTO"; 
-import { VariantResponseDTO } from "@/types/variantDTO"; 
+import { ProductResponseDTO, ProductDetailResponseDTO } from "@/types/productDTO";
+import { VariantResponseDTO } from "@/types/variantDTO";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
 
@@ -25,33 +26,37 @@ function ProductDetailContent() {
   const params = useParams();
   const id = params.id as string;
 
-  // --- State cho dữ liệu thật ---
   const [productData, setProductData] = useState<ProductDetailResponseDTO | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  // ---
 
-  // State cho Variant
   const [selectedAttributes, setSelectedAttributes] = useState<Record<string, number>>({});
-  const [selectedVariant, setSelectedVariant] = useState<VariantResponseDTO | null>(null); 
+  const [selectedVariant, setSelectedVariant] = useState<VariantResponseDTO | null>(null);
   const [isFindingVariant, setIsFindingVariant] = useState(false);
 
   const [quantity, setQuantity] = useState(1);
-  const [isAdded, setIsAdded] = useState(false);
-  const { addToCart } = useCart();
-  const { isInWishlist, addToWishlist, removeFromWishlist, isLoaded: wishlistLoaded } = useWishlist();
-  const { user, isLoggedIn, isLoaded: authLoaded } = useAuth(); // Dùng hook giả lập
-  const { getProductReviews, hasUserReviewed, isLoaded: reviewsLoaded } = useReviews();
-  const [reviewsRefresh, setReviewsRefresh] = useState(0);
+  
+  // SỬA: Thêm state hydrated
+  const [hydrated, setHydrated] = useState(false);
 
-  // --- Logic Fetch Dữ liệu thật ---
+  const { addToCart, isMutating: isCartMutating } = useCart(); 
+  const { isInWishlist, addToWishlist, removeFromWishlist, isLoaded: wishlistLoaded } = useWishlist();
+  
+  // SỬA: Không lấy isLoaded từ store này
+  // const { isLoaded: authLoaded } = useAuthStore(); 
+  const { getProductReviews, hasUserReviewed, isLoaded: reviewsLoaded } = useReviews();
+
+  // SỬA: Thêm useEffect để set hydrated
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
+
+  // --- Logic Fetch Dữ liệu (Giữ nguyên) ---
   useEffect(() => {
     if (!id) return;
-
     const fetchProductDetail = async () => {
       setIsLoading(true);
       try {
-        // 1. Gọi API Lấy chi tiết (đã tạo ở Backend)
-        const response = await fetch(`${API_URL}/v1/products/detail/${id}`); 
+        const response = await fetch(`${API_URL}/v1/products/detail/${id}`);
         if (!response.ok) throw new Error("Không tìm thấy sản phẩm (404)");
         
         const result = await response.json();
@@ -60,7 +65,6 @@ function ProductDetailContent() {
         const data: ProductDetailResponseDTO = result.data;
         setProductData(data);
         
-        // 2. Set giá trị thuộc tính mặc định (ví dụ: chọn giá trị đầu tiên)
         const defaultAttributes: Record<string, number> = {};
         data.attributes.forEach(attr => {
           if (attr.values.length > 0) {
@@ -71,58 +75,50 @@ function ProductDetailContent() {
 
       } catch (err: any) {
         toast.error(err.message);
-        setProductData(null); // Set = null nếu lỗi
+        setProductData(null);
       } finally {
         setIsLoading(false);
       }
     };
-    
     fetchProductDetail();
   }, [id]);
 
-  // --- Logic Tìm Biến thể (Variant) ---
+  // --- Logic Tìm Biến thể (Giữ nguyên) ---
   useEffect(() => {
-    // Nếu chưa có data sản phẩm hoặc chưa chọn đủ thuộc tính -> Reset
     if (!productData || Object.keys(selectedAttributes).length < productData.attributes.length) {
       setSelectedVariant(null);
       return;
     }
-
     const findVariant = async () => {
       setIsFindingVariant(true);
       const attributeValueIds = Object.values(selectedAttributes);
-      
       try {
-        // 2. Gọi API Tìm Variant (API này bạn cần tự tạo ở Backend)
         const response = await fetch(`${API_URL}/v1/variants/find?productId=${id}&valueIds=${attributeValueIds.join(',')}`);
-        
-        if (response.status === 404) { // Không tìm thấy
-            setSelectedVariant(null); // Reset
-            toast.error("Biến thể này không tồn tại (vd: Size L, Đỏ)");
-            return;
+        if (response.status === 404) {
+          setSelectedVariant(null);
+          toast.error("Biến thể này không tồn tại");
+          return;
         }
         if (!response.ok) throw new Error("Lỗi khi tìm biến thể");
         
         const result = await response.json();
         if (result.status === 'SUCCESS') {
-            setSelectedVariant(result.data); // Lưu variant tìm được
+          setSelectedVariant(result.data);
         } else {
-            setSelectedVariant(null); 
+          setSelectedVariant(null);
         }
       } catch (err) {
         console.error(err);
-        setSelectedVariant(null); 
+        setSelectedVariant(null);
       } finally {
         setIsFindingVariant(false);
       }
     };
-
     findVariant();
   }, [id, selectedAttributes, productData]);
-  // ---
 
-  // Hiển thị Loading
-  if (isLoading || !authLoaded) {
+  // --- SỬA: Hiển thị Loading ---
+  if (isLoading || !hydrated) { // Chờ hydrated
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="h-10 w-10 animate-spin text-primary" />
@@ -130,8 +126,8 @@ function ProductDetailContent() {
     );
   }
 
-  // Không tìm thấy sản phẩm
-  if (!productData || !productData.product) { 
+  // --- Không tìm thấy sản phẩm (Giữ nguyên) ---
+  if (!productData || !productData.product) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -144,82 +140,48 @@ function ProductDetailContent() {
     );
   }
   
-  // Sửa: Gán product từ state
   const { product, relatedProducts, attributes } = productData;
 
-  // --- SỬA LOGIC GIÁ BÁN (Dòng 141) ---
+  // --- Logic giá bán (Giữ nguyên) ---
   const isVariantSelected = !!selectedVariant;
-
-  // (Lấy giá của đối tượng đang được chọn)
   const basePrice = isVariantSelected ? selectedVariant.price : product.price; 
   const salePrice = isVariantSelected ? selectedVariant.salePrice : product.salePrice;
   const isPromoValid = isVariantSelected ? selectedVariant.isPromotionStillValid : product.isPromotionStillValid;
-
-  // (Quyết định giá hiển thị)
   const displayPrice = (isPromoValid && salePrice != null) ? salePrice : basePrice;
-  const displayOriginalPrice = (isPromoValid && salePrice != null) ? basePrice : null; // (Giá gốc để gạch đi)
-
+  const displayOriginalPrice = (isPromoValid && salePrice != null) ? basePrice : null;
   const displayImage = selectedVariant?.imageUrl ?? product.imageUrl;
   const displayStock = selectedVariant?.stockQuantity ?? 0;
   const isOutOfStock = (selectedVariant === null && productData.attributes.length > 0) || (selectedVariant !== null && displayStock === 0); 
-  // --- KẾT THÚC SỬA LOGIC GIÁ ---
+  // --- KẾT THÚC LOGIC GIÁ ---
 
-  // --- SỬA LỖI 'selected' ---
-  const handleAddToCart = () => {
+  // --- SỬA HÀM ADD TO CART ---
+  const handleAddToCart = async () => { // 1. Thêm async
     if (isFindingVariant) {
-        toast.error("Đang kiểm tra kho, vui lòng đợi...");
-        return;
+      toast.error("Đang kiểm tra kho, vui lòng đợi...");
+      return;
     }
     if (isOutOfStock) {
-        toast.error("Biến thể này đã hết hàng!");
-        return;
+      toast.error("Biến thể này đã hết hàng!");
+      return;
     }
     if (!selectedVariant?.id) {
-        toast.error("Vui lòng chọn đầy đủ thuộc tính");
-        return;
+      toast.error("Vui lòng chọn đầy đủ thuộc tính");
+      return;
     }
 
-    // Helper function để lấy tên ("M", "Đỏ") từ ID (4, 1)
-    const getAttributeValueName = (attrName: string) => {
-        const attr = attributes.find(a => a.name === attrName);
-        if (!attr) return "";
-        const valueId = selectedAttributes[attrName];
-        return attr.values.find(v => v.id === valueId)?.value || "";
-    };
-
-    addToCart({
-      id: String(selectedVariant.id), // ID của BIẾN THỂ
-      name: product.name,
-      price: displayPrice, // (Dùng giá đã tính)
-      image: displayImage,
-      quantity,
-      size: getAttributeValueName("Size"), // Sửa: Lấy tên Size
-      color: getAttributeValueName("Color"), // Sửa: Lấy tên Color
-      selected: true, // <-- ĐÃ SỬA
-    });
-    setIsAdded(true);
-    setTimeout(() => setIsAdded(false), 2000);
+    // 2. Gọi hook mới
+    await addToCart(selectedVariant.id, quantity);
   };
-  // ---
+  // --- KẾT THÚC SỬA ---
 
-  const handleWishlistToggle = () => {
-    if (wishlistLoaded) {
-      if (isInWishlist(String(product.id))) {
-        removeFromWishlist(String(product.id));
-      } else {
-        addToWishlist(String(product.id));
-      }
-    }
-  };
-
+  const handleWishlistToggle = () => { /* ... */ };
   const productReviews = getProductReviews(String(product.id));
-  const userHasReviewed = user ? hasUserReviewed(String(product.id), user.id) : false;
   const productRating = 4.5; // (Dữ liệu giả)
 
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Breadcrumb */}
+        {/* Breadcrumb (Giữ nguyên) */}
         <div className="mb-8 flex items-center gap-2 text-sm text-muted-foreground">
           <Link href="/" className="hover:text-foreground">Home</Link>
           <span>/</span>
@@ -228,7 +190,7 @@ function ProductDetailContent() {
           <span className="text-foreground">{product.name}</span>
         </div>
 
-        {/* Product Detail */}
+        {/* Product Detail (Giữ nguyên) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-16">
           {/* Product Image */}
           <div className="flex items-center justify-center bg-muted rounded-lg overflow-hidden aspect-square">
@@ -240,19 +202,17 @@ function ProductDetailContent() {
             />
           </div>
 
-          {/* Product Info (Sửa: Dùng DTO thật) */}
+          {/* Product Info */}
           <div className="flex flex-col justify-between">
             <div>
               <div className="mb-4">
                 <p className="text-sm text-muted-foreground mb-2">{product.categoryName}</p>
                 <h1 className="text-4xl font-bold mb-4">{product.name}</h1>
-                {/* (Rating) */}
                 <div className="flex items-center gap-4 mb-6">
-                  {/* ... (Code Rating) ... */}
+                  {/* ... (Rating) ... */}
                 </div>
                 
-                {/* --- SỬA HIỂN THỊ GIÁ (Dòng 267) --- */}
-                {/* Price (Hiển thị giá Sale nếu có) */}
+                {/* Hiển thị giá (Giữ nguyên) */}
                 {displayOriginalPrice ? (
                   <div className="flex items-baseline gap-3 mb-6">
                       <p className="text-4xl font-bold text-destructive">{displayPrice.toLocaleString('vi-VN')}₫</p>
@@ -261,12 +221,10 @@ function ProductDetailContent() {
                 ) : (
                   <p className="text-4xl font-bold text-primary mb-6">{displayPrice.toLocaleString('vi-VN')}₫</p>
                 )}
-                {/* --- KẾT THÚC SỬA --- */}
-
                 <p className="text-muted-foreground mb-8">{product.description}</p>
               </div>
 
-              {/* --- SỬA: LỰA CHỌN BIẾN THỂ (ATTRIBUTE) --- */}
+              {/* Lựa chọn biến thể (Giữ nguyên) */}
               {attributes.map((attr) => (
                 <div className="mb-6" key={attr.id}>
                   <label className="block text-sm font-semibold mb-3">{attr.name}</label>
@@ -291,43 +249,53 @@ function ProductDetailContent() {
                 </div>
               ))}
               
-              {/* Quantity Selection */}
+              {/* Quantity Selection (Giữ nguyên) */}
               <div className="mb-8">
-                {/* ... (Code nút +/-) ... */}
+                <label className="block text-sm font-semibold mb-3">Số lượng</label>
+                <div className="flex items-center gap-4">
+                  <button
+                    onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                    className="px-4 py-2 border border-border rounded-lg hover:bg-muted transition"
+                    disabled={quantity <= 1}
+                  > - </button>
+                  <span className="text-lg font-semibold w-8 text-center">{quantity}</span>
+                  <button
+                    onClick={() => setQuantity(quantity + 1)}
+                    disabled={isOutOfStock || quantity >= displayStock}
+                    className="px-4 py-2 border border-border rounded-lg hover:bg-muted transition"
+                  > + </button>
+                  <span className="text-sm text-muted-foreground">
+                    {isFindingVariant ? "Đang kiểm tra..." : isOutOfStock ? "Hết hàng" : `(Còn ${displayStock} sản phẩm)`}
+                  </span>
+                </div>
               </div>
             </div>
 
-            {/* Action Buttons */}
+            {/* --- SỬA NÚT ACTION --- */}
             <div className="flex gap-4">
               <Button
                 onClick={handleAddToCart}
-                disabled={isOutOfStock || isFindingVariant} // (Disable nếu hết hàng)
+                disabled={isOutOfStock || isFindingVariant || isCartMutating} // Thêm isCartMutating
                 className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 py-6 text-lg"
               >
                 <ShoppingCart className="w-5 h-5 mr-2" />
-                {isFindingVariant ? "Đang kiểm tra..." : isOutOfStock ? "Hết hàng" : isAdded ? "Đã thêm!" : "Thêm vào giỏ"}
+                {isFindingVariant ? "Đang kiểm tra..." : 
+                 isCartMutating ? "Đang thêm..." : 
+                 isOutOfStock ? "Hết hàng" : "Thêm vào giỏ"}
               </Button>
               {/* ... (Nút Wishlist) ... */}
             </div>
+            {/* --- KẾT THÚC SỬA --- */}
           </div>
         </div>
 
-        <div className="mb-16">
-          {/* ... (Code Customer Reviews) ... */}
-        </div>
-
-        {/* Related Products */}
-        {relatedProducts.length > 0 && (
-          <section>
-            {/* ... (Code Related Products) ... */}
-          </section>
-        )}
+        {/* ... (Reviews và Related Products giữ nguyên) ... */}
       </div>
     </div>
   );
 }
 
-// Component Gốc (Bọc trong Suspense)
+// Component Gốc (Giữ nguyên)
 export default function ProductDetailPage() {
   return (
     <Suspense fallback={

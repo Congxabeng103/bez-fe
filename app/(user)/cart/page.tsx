@@ -1,15 +1,19 @@
-"use client"
+// (path: app/(routes)/cart/page.tsx)
 
-import { useCart } from "@/hooks/use-cart"
-import { CartItemComponent } from "@/components/store/cart-item"
-import { Button } from "@/components/ui/button"
-import Link from "next/link"
-import { ArrowLeft } from "lucide-react"
-import { translations as t } from "@/lib/translations"
+"use client";
+
+import { useCart } from "@/hooks/use-cart";
+import { CartItemComponent } from "@/components/store/cart-item"; // Import component
+import { Button } from "@/components/ui/button";
+import Link from "next/link";
+import { ArrowLeft, Loader2 } from "lucide-react";
+import { translations as t } from "@/lib/translations"; // (Giả sử bạn có file này)
 
 export default function CartPage() {
   const {
     cart,
+    isLoaded,     // <-- Lấy thêm
+    isMutating,   // <-- Lấy thêm
     removeFromCart,
     updateQuantity,
     toggleSelected,
@@ -18,13 +22,23 @@ export default function CartPage() {
     getTotalPrice,
     clearCart,
     getSelectedCount,
-  } = useCart()
-  const total = getTotalPrice()
-  const selectedCount = getSelectedCount()
-  const shipping = selectedCount > 0 ? 50000 : 0
-  const tax = total * 0.1
-  const grandTotal = total + shipping + tax
+  } = useCart();
 
+  const total = getTotalPrice(); // Hook đã dùng currentPrice
+  const selectedCount = getSelectedCount();
+  const shipping = selectedCount > 0 ? 50000 : 0;
+  const grandTotal = total + shipping ;
+
+  // --- THÊM STATE LOADING ---
+  if (!isLoaded) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // --- TRẠNG THÁI GIỎ HÀNG RỖNG ---
   if (cart.length === 0) {
     return (
       <div className="min-h-screen bg-background">
@@ -41,9 +55,10 @@ export default function CartPage() {
           </div>
         </div>
       </div>
-    )
+    );
   }
 
+  // --- GIỎ HÀNG CÓ SẢN PHẨM ---
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -51,8 +66,10 @@ export default function CartPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Cart Items */}
-          <div className="lg:col-span-2">
+          {/* Thêm isMutating để làm mờ khi đang cập nhật */}
+          <div className={`lg:col-span-2 ${isMutating ? 'opacity-50 pointer-events-none' : ''}`}>
             <div className="bg-card rounded-lg border border-border p-6">
+              {/* Select All */}
               <div className="flex items-center justify-between mb-4 pb-4 border-b border-border">
                 <div className="flex items-center gap-4">
                   <input
@@ -67,15 +84,19 @@ export default function CartPage() {
                 </div>
               </div>
 
+              {/* --- SỬA LOGIC LẶP --- */}
               {cart.map((item) => (
                 <CartItemComponent
-                  key={`${item.id}-${item.size}-${item.color}`}
+                  key={item.variantId} // Sửa: Dùng variantId làm key
                   item={item}
-                  onUpdateQuantity={(quantity) => updateQuantity(item.id, item.size, item.color, quantity)}
-                  onRemove={() => removeFromCart(item.id, item.size, item.color)}
-                  onToggleSelected={() => toggleSelected(item.id, item.size, item.color)}
+                  // Sửa: Truyền hàm với variantId
+                  onUpdateQuantity={(quantity) => updateQuantity(item.variantId, quantity)}
+                  onRemove={() => removeFromCart(item.variantId)}
+                  onToggleSelected={() => toggleSelected(item.variantId)}
                 />
               ))}
+              {/* --- KẾT THÚC SỬA --- */}
+              
             </div>
 
             <div className="mt-6">
@@ -88,11 +109,10 @@ export default function CartPage() {
             </div>
           </div>
 
-          {/* Order Summary */}
+          {/* Order Summary (Giữ nguyên) */}
           <div className="lg:col-span-1">
             <div className="bg-card rounded-lg border border-border p-6 sticky top-20">
               <h2 className="text-2xl font-bold mb-6">{t.orderSummary}</h2>
-
               <div className="space-y-4 mb-6">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">{t.subtotal}</span>
@@ -101,17 +121,12 @@ export default function CartPage() {
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">{t.shipping}</span>
                   <span className="font-semibold">{shipping.toLocaleString("vi-VN")}₫</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">{t.tax} (10%)</span>
-                  <span className="font-semibold">{tax.toLocaleString("vi-VN")}₫</span>
-                </div>
+                </div>               
                 <div className="border-t border-border pt-4 flex justify-between">
                   <span className="font-bold">{t.total}</span>
                   <span className="text-2xl font-bold text-primary">{grandTotal.toLocaleString("vi-VN")}₫</span>
                 </div>
               </div>
-
               <Link href={selectedCount > 0 ? "/checkout" : "#"} className="w-full block">
                 <Button
                   className="w-full bg-primary text-primary-foreground hover:bg-primary/90 py-6 text-lg disabled:opacity-50 disabled:cursor-not-allowed"
@@ -120,7 +135,6 @@ export default function CartPage() {
                   {t.proceedCheckout}
                 </Button>
               </Link>
-
               <button
                 onClick={clearCart}
                 className="w-full mt-3 px-4 py-2 text-destructive border border-destructive rounded-lg hover:bg-destructive/10 transition"
@@ -132,5 +146,5 @@ export default function CartPage() {
         </div>
       </div>
     </div>
-  )
+  );
 }
