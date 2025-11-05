@@ -20,6 +20,7 @@ export interface AdminOrderDTO {
   totalAmount: number;
   orderStatus: OrderStatus;
   paymentStatus: PaymentStatus;
+  paymentMethod: PaymentMethod; // <-- Thêm dòng này
 }
 
 /**

@@ -1,13 +1,12 @@
-// (path: app/(user)/orders/page.tsx)
 "use client";
 
-import { useAuthStore } from "@/lib/authStore"; 
+import { useAuthStore } from "@/lib/authStore";
 import { OrderCard } from "@/components/store/order-card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useCallback } from "react"; // (SỬA: Thêm useCallback)
-import { Package, Loader2 } from "lucide-react"; 
+import { useEffect, useState, useCallback } from "react";
+import { Package, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { PageResponseDTO, UserOrderDTO } from "@/types/userOrderDTO";
 
@@ -15,9 +14,7 @@ import { PageResponseDTO, UserOrderDTO } from "@/types/userOrderDTO";
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
 const manualFetchApi = async (url: string, options: RequestInit = {}) => {
   const { token } = useAuthStore.getState();
-  // (Middleware đã chặn, nhưng vẫn check token ở đây để đề phòng 
-  // trường hợp token hết hạn khi user đang mở trang)
-  if (!token) throw new Error("Bạn cần đăng nhập"); 
+  if (!token) throw new Error("Bạn cần đăng nhập");
   const headers = new Headers(options.headers || {});
   headers.set("Authorization", `Bearer ${token}`);
   if (!headers.has("Content-Type") && options.body) {
@@ -34,19 +31,18 @@ const manualFetchApi = async (url: string, options: RequestInit = {}) => {
 
 export default function OrdersPage() {
   // Lấy 'isAuthenticated' từ store
-  const { isAuthenticated } = useAuthStore(); 
+  const { isAuthenticated } = useAuthStore();
   const router = useRouter();
 
   const [orders, setOrders] = useState<UserOrderDTO[]>([]);
   // SỬA: Khởi tạo isLoading là true
-  const [isLoading, setIsLoading] = useState(true); 
+  const [isLoading, setIsLoading] = useState(true);
   const [pagination, setPagination] = useState({ page: 0, totalPages: 1, size: 5 });
 
-  
+  // --- 1. THÊM STATE ĐỂ BIẾT NÚT NÀO ĐANG LOADING ---
+  const [retryingOrderId, setRetryingOrderId] = useState<number | null>(null);
 
   // SỬA LỖI 2: Chỉ fetch khi 'isAuthenticated' là true
-  // (Zustand/persist sẽ tự động re-render khi 'isAuthenticated'
-  // đổi từ false (server) -> true (client hydated))
   const fetchMyOrders = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -54,7 +50,7 @@ export default function OrdersPage() {
         `/v1/orders/my-orders?page=${pagination.page}&size=${pagination.size}`
       );
       const data: PageResponseDTO<UserOrderDTO> = response.data;
-      
+
       setOrders(data.content);
       setPagination(prev => ({
         ...prev,
@@ -62,8 +58,6 @@ export default function OrdersPage() {
       }));
 
     } catch (err: any) {
-      // Nếu token hết hạn, 'manualFetchApi' sẽ ném lỗi 
-      // và chúng ta sẽ toast lỗi đó
       toast.error(err.message || "Lỗi khi tải đơn hàng.");
     } finally {
       setIsLoading(false);
@@ -72,23 +66,36 @@ export default function OrdersPage() {
 
   useEffect(() => {
     // Nếu store đã tải và xác nhận 'isAuthenticated'
-    if (isAuthenticated) { 
+    if (isAuthenticated) {
       fetchMyOrders();
     } else {
-      // Nếu vì lý do nào đó (sau khi hydrate) mà vẫn false
-      // (Middleware nên bắt, nhưng đây là dự phòng)
-      // Hoặc nếu 'isAuthenticated' ban đầu là false (server render)
-      // thì ta không làm gì cả (chỉ 'isLoading')
-      
-      // Nếu không 'isAuthenticated' VÀ *không* 'isLoading' (tức là đã load xong)
-      // thì mới set 'isLoading = false'
       setIsLoading(false);
     }
   }, [isAuthenticated, fetchMyOrders]); // Chạy lại khi auth thay đổi
 
+  // --- 2. THÊM HÀM XỬ LÝ THANH TOÁN LẠI ---
+  const handleRetryPayment = async (orderId: number) => {
+    setRetryingOrderId(orderId); // Báo là: "Nút của đơn này đang load"
+    try {
+      // Gọi API backend (đã có)
+      const response = await manualFetchApi(
+        `/v1/payment/${orderId}/retry-vnpay`,
+        { method: 'POST' }
+      );
+      const paymentUrl = response.data.paymentUrl;
+      if (paymentUrl) {
+        window.location.href = paymentUrl; // Redirect sang VNPAY
+      } else {
+        throw new Error("Không thể tạo link thanh toán.");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Lỗi khi thử thanh toán lại.");
+      setRetryingOrderId(null); // Tắt loading nếu lỗi
+    }
+    // Không cần 'finally' vì nếu thành công là đã redirect đi rồi.
+  };
+
   // SỬA LỖI 3: Chỉ check 'isLoading'
-  // (isAuthenticated=false sẽ bị middleware chặn, 
-  // hoặc 'fetchOrders' không chạy, 'isLoading' sẽ về false)
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -119,12 +126,20 @@ export default function OrdersPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {orders.map((order) => (
-              <OrderCard key={order.id} order={order} />
-            ))}
-          </div>
-          
 
+            {/* --- 3. SỬA CHỖ NÀY ĐỂ TRUYỀN PROPS XUỐNG --- */}
+            {orders.map((order) => (
+              <OrderCard
+                key={order.id}
+                order={order}
+                // Truyền hàm xử lý xuống
+                onRetryPayment={handleRetryPayment}
+                // Báo cho Card biết nó có đang loading hay không
+                isRetrying={retryingOrderId === order.id}
+              />
+            ))}
+
+          </div>
         )}
       </div>
     </div>

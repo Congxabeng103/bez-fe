@@ -19,6 +19,8 @@ export interface UserOrderDTO {
   totalAmount: number;
   orderStatus: OrderStatus;
   totalItems: number; // (Tổng số loại sản phẩm)
+  paymentMethod: PaymentMethod;
+  paymentStatus: PaymentStatus;
 }
 
 /**
@@ -30,4 +32,5 @@ export interface PageResponseDTO<T> {
   size: number;        // (Số lượng trên trang)
   totalElements: number; // (Tổng số đơn hàng)
   totalPages: number;  // (Tổng số trang)
+ 
 }

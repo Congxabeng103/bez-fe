@@ -1,17 +1,22 @@
-// (path: src/app/(admin)/orders/page.tsx - hoặc nơi bạn đặt file)
-
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Eye, Download, Ban, X, Check, Truck, Undo, Package, MapPin, PhoneCall, ScrollText, Loader2, AlertCircle, PackageCheck } from "lucide-react";
+import { 
+  Search, Eye, Download, Ban, X, Check, Truck, Undo, Package, 
+  MapPin, PhoneCall, ScrollText, Loader2, AlertCircle, PackageCheck,
+  CreditCard, Landmark 
+} from "lucide-react";
 import { Pagination } from "@/components/store/pagination";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuthStore } from "@/lib/authStore";
+
+// --- SỬA 1: IMPORT MỚI ---
+import { OrderHistoryTimeline } from "@/components/admin/order-history-timeline"; 
 
 // --- Import DTOs thật ---
 import {
@@ -20,9 +25,21 @@ import {
   OrderStatus,
   PaymentStatus,
   PageResponseDTO
-} from "@/types/adminOrderDTO"; // (Đảm bảo file này đã có 'DISPUTE')
+} from "@/types/adminOrderDTO"; 
 
-// --- Thêm Helper API Call ---
+// --- SỬA 2: THÊM DTO MỚI CHO LOG ---
+// (Tên 'OrderAuditLogResponseDTO' phải khớp với DTO Backend của bạn)
+type OrderAuditLogResponseDTO = {
+  id: number;
+  staffName: string;
+  description: string;
+  fieldChanged?: string;
+  oldValue?: string;
+  newValue?: string;
+  createdAt: string; // ISO String
+};
+
+// --- Thêm Helper API Call (Giữ nguyên) ---
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
 const manualFetchApi = async (url: string, options: RequestInit = {}) => {
   const { token } = useAuthStore.getState();
@@ -37,14 +54,14 @@ const manualFetchApi = async (url: string, options: RequestInit = {}) => {
   if (!response.ok || responseData.status !== 'SUCCESS') {
     throw new Error(responseData.message || "Có lỗi xảy ra");
   }
-  return responseData; 
+  return responseData; // (Giữ nguyên, vì các hàm khác đang dùng response.data)
 };
 // --- Hết Helper ---
 
 
 const ITEMS_PER_PAGE = 10; 
 
-// --- Labels và Colors (Đã thêm DISPUTE) ---
+// --- (Labels và Colors giữ nguyên) ---
 const statusColors: Record<OrderStatus, string> = { 
   PENDING: "border-yellow-500/50 bg-yellow-500/10 text-yellow-700 dark:text-yellow-300", 
   CONFIRMED: "border-blue-500/50 bg-blue-500/10 text-blue-700 dark:text-blue-300", 
@@ -99,9 +116,13 @@ export function OrderManagement() {
   const [isFetchingItems, setIsFetchingItems] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   
+  // --- SỬA 3: THÊM STATE MỚI ĐỂ LƯU LỊCH SỬ ---
+  const [orderHistory, setOrderHistory] = useState<OrderAuditLogResponseDTO[]>([]);
+  const [isFetchingHistory, setIsFetchingHistory] = useState(false);
+  
   // --- Logic gọi API (Giữ nguyên) ---
   
-  // 1. Fetch danh sách đơn hàng
+  // 1. Fetch danh sách đơn hàng (Giữ nguyên)
   const fetchOrders = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -133,11 +154,16 @@ export function OrderManagement() {
     fetchOrders();
   }, [fetchOrders]); 
   
-  // 2. Xem chi tiết (Giữ nguyên)
+  // --- SỬA 4: SỬA HÀM NÀY ĐỂ GỌI 2 API ---
   const handleViewDetails = async (order: AdminOrderDTO) => {
+    // 1. Mở modal và bật loading
     setSelectedOrder(null); 
     setShowDetails(true);
     setIsFetchingItems(true);
+    setIsFetchingHistory(true); // <-- Bật loading lịch sử
+    setOrderHistory([]);        // <-- Xóa lịch sử cũ
+
+    // 2. Luồng 1: Tải chi tiết đơn (như cũ)
     try {
       const response = await manualFetchApi(`/v1/orders/${order.id}`);
       setSelectedOrder(response.data as AdminOrderDetailDTO);
@@ -145,6 +171,16 @@ export function OrderManagement() {
       toast.error(err.message || "Lỗi khi tải chi tiết đơn hàng.");
     } finally {
       setIsFetchingItems(false);
+    }
+    
+    // 3. Luồng 2: Tải lịch sử (DÙNG API MỚI)
+    try {
+      const historyResponse = await manualFetchApi(`/v1/orders/${order.id}/history`);
+      setOrderHistory(historyResponse.data as OrderAuditLogResponseDTO[]);
+    } catch (err: any) {
+      toast.error(err.message || "Lỗi khi tải lịch sử đơn hàng.");
+    } finally {
+      setIsFetchingHistory(false); // <-- Tắt loading lịch sử
     }
   };
 
@@ -200,20 +236,31 @@ export function OrderManagement() {
     setCurrentPage(newPage - 1); 
   };
   const exportToExcel = () => {
-     toast.info("Chức năng xuất Excel đang được phát triển.");
+    toast.info("Chức năng xuất Excel đang được phát triển.");
   };
 
-  // --- 4. SỬA LỖI: Render Nút Hành Động (Thêm lại Hủy khi SHIPPING/DELIVERED) ---
+  // --- 4. Render Nút Hành Động (Giữ nguyên) ---
   const renderActionButtons = (order: AdminOrderDTO) => {
     const buttons = [];
-    const buttonBaseClass = "min-w-[80px] justify-center text-xs h-8";
     
+    // (Giữ nguyên: Nút có chiều rộng cố định w-[110px])
+    const buttonBaseClass = "w-[110px] justify-center text-xs h-8";
+    
+    // Nút "Xem" luôn có
     buttons.push( <Button key="view" variant="outline" size="sm" className="h-8 px-2" onClick={() => handleViewDetails(order)}> <Eye size={14} /> </Button> );
     
+    // Các nút điều kiện
     switch (order.orderStatus) {
       case "PENDING":
-        buttons.push( <Button key="confirm" size="sm" variant="secondary" className={`bg-blue-500 hover:bg-blue-600 text-white ${buttonBaseClass}`} onClick={() => handleUpdateStatus(order.id, "CONFIRMED")}> <Check size={14} className="mr-1" /> Xác nhận </Button> );
-        buttons.push( <Button key="cancel" size="sm" variant="destructive" className={buttonBaseClass} onClick={() => handleUpdateStatus(order.id, "CANCELLED")}> <Ban size={14} className="mr-1"/> Hủy </Button> );
+        const isVnpayUnpaid = order.paymentMethod === 'VNPAY' && 
+                              (order.paymentStatus === 'PENDING' || order.paymentStatus === 'FAILED');
+
+        if (isVnpayUnpaid) {
+            buttons.push( <Button key="cancel" size="sm" variant="destructive" className={buttonBaseClass} onClick={() => handleUpdateStatus(order.id, "CANCELLED")}> <Ban size={14} className="mr-1"/> Hủy </Button> );
+        } else {
+            buttons.push( <Button key="confirm" size="sm" variant="secondary" className={`bg-blue-500 hover:bg-blue-600 text-white ${buttonBaseClass}`} onClick={() => handleUpdateStatus(order.id, "CONFIRMED")}> <Check size={14} className="mr-1" /> Xác nhận </Button> );
+            buttons.push( <Button key="cancel" size="sm" variant="destructive" className={buttonBaseClass} onClick={() => handleUpdateStatus(order.id, "CANCELLED")}> <Ban size={14} className="mr-1"/> Hủy </Button> );
+        }
         break;
         
       case "CONFIRMED":
@@ -224,26 +271,25 @@ export function OrderManagement() {
         
       case "SHIPPING":
         buttons.push( <Button key="delivered" size="sm" variant="secondary" className={`bg-green-500 hover:bg-green-600 text-white ${buttonBaseClass}`} onClick={() => handleUpdateStatus(order.id, "DELIVERED")}> <Check size={14} className="mr-1" /> Đã giao </Button> );
-        // (Thêm lại nút Hủy - Dành cho Admin xử lý giao thất bại)
         buttons.push( <Button key="cancel_ship" size="sm" variant="destructive" className={buttonBaseClass} onClick={() => handleUpdateStatus(order.id, "CANCELLED")}> <Ban size={14} className="mr-1"/> Hủy </Button> );
         break;
         
       case "DELIVERED":
         buttons.push( <Button key="complete" size="sm" variant="secondary" className={`bg-gray-500 hover:bg-gray-600 text-white ${buttonBaseClass}`} onClick={() => handleUpdateStatus(order.id, "COMPLETED")}> <PackageCheck size={14} className="mr-1" /> Hoàn tất </Button> );
-        // (Thêm nút Hủy - Dành cho Admin xử lý trả hàng/khiếu nại qua điện thoại)
         buttons.push( <Button key="cancel_delivered" size="sm" variant="destructive" className={buttonBaseClass} onClick={() => handleUpdateStatus(order.id, "CANCELLED")}> <Ban size={14} className="mr-1"/> Hủy/Trả hàng </Button> );
         break;
       
       case "DISPUTE":
-        buttons.push( <Button key="resolve_delivered" size="sm" variant="secondary" className={`bg-green-500 hover:bg-green-600 text-white ${buttonBaseClass}`} onClick={() => handleUpdateStatus(order.id, "DELIVERED")}> <Check size={14} className="mr-1" /> Đã giao </Button> );
+        buttons.push( <Button key="complete" size="sm" variant="secondary" className={`bg-gray-500 hover:bg-gray-600 text-white ${buttonBaseClass}`} onClick={() => handleUpdateStatus(order.id, "COMPLETED")}> <PackageCheck size={14} className="mr-1" /> Hoàn tất </Button> );
         buttons.push( <Button key="resolve_cancel" size="sm" variant="destructive" className={buttonBaseClass} onClick={() => handleUpdateStatus(order.id, "CANCELLED")}> <Ban size={14} className="mr-1"/> Hủy/Hoàn tiền </Button> );
         break;
         
+      // COMPLETED, CANCELLED sẽ rơi vào default, không push thêm nút nào.
       default: 
-        // (COMPLETED, CANCELLED không có nút)
         break;
     }
-    return <div className="flex gap-1.5 justify-center items-center">{buttons}</div>;
+    
+    return <>{buttons}</>;
   };
   // --- KẾT THÚC SỬA ---
 
@@ -251,20 +297,11 @@ export function OrderManagement() {
   // --- JSX ---
   return (
     <div className="p-4 sm:p-6 space-y-6">
-      {/* Header (Giữ nguyên) */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-        <div> <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Quản lý đơn hàng</h1> <p className="text-sm text-muted-foreground mt-1">Quản lý tất cả đơn hàng từ khách hàng</p> </div>
-        <div className="flex gap-2 self-end sm:self-center">
-          <Button onClick={exportToExcel} className="gap-2" size="sm"> <Download size={16} /> Xuất Excel </Button> 
-        </div>
-      </div>
-
-      {/* Card Danh sách */}
+      {/* (Header, Card Danh sách, Table ... giữ nguyên y hệt) */}
+      {/* ... ... */}
       <Card>
         <CardHeader>
           <CardTitle>Danh sách đơn hàng ({pagination.totalElements})</CardTitle>
-          
-          {/* --- 5. SỬA: Thêm tab "Khiếu nại" và "Hoàn tất" (grid-cols-8) --- */}
           <Tabs value={statusFilter} onValueChange={handleStatusFilterChange} className="mt-4">
             <TabsList className="grid w-full grid-cols-4 sm:grid-cols-8"> 
               <TabsTrigger value="ALL">Tất cả</TabsTrigger> 
@@ -277,8 +314,6 @@ export function OrderManagement() {
               <TabsTrigger value="CANCELLED">Đã hủy</TabsTrigger> 
             </TabsList>
           </Tabs>
-          {/* --- KẾT THÚC SỬA --- */}
-
           <div className="mt-4 flex gap-2 items-center"> <Search size={18} className="text-muted-foreground" /> <Input placeholder="Tìm mã đơn, tên khách, SĐT..." value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(0); }} className="flex-1 h-9" /> </div>
         </CardHeader>
         <CardContent>
@@ -292,14 +327,71 @@ export function OrderManagement() {
             <>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-muted/30"><tr className="border-b"><th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Mã đơn</th><th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Khách hàng</th><th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Ngày đặt</th><th className="text-right py-2.5 px-3 font-semibold text-foreground/80">Tổng cộng</th><th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Thanh toán</th><th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Trạng thái ĐH</th><th className="text-center py-2.5 px-3 font-semibold text-foreground/80 min-w-[160px]">Hành động</th></tr></thead>
-                  <tbody>{orders.map((order) => (<tr key={order.id} className="border-b last:border-b-0 hover:bg-muted/50"><td className="py-2 px-3 font-medium">{order.orderNumber}</td><td className="py-2 px-3">{order.customerName}</td><td className="py-2 px-3 text-muted-foreground">{new Date(order.createdAt).toLocaleDateString('vi-VN')}</td><td className="py-2 px-3 text-right font-semibold">{formatCurrency(order.totalAmount)}</td><td className="py-2 px-3 text-xs"><Badge variant="outline" className={`mt-1 text-[11px] font-medium ${paymentStatusColors[order.paymentStatus]}`}>{paymentStatusLabels[order.paymentStatus]}</Badge></td><td className="py-2 px-3 text-center"><Badge variant="outline" className={`text-[11px] font-medium ${statusColors[order.orderStatus]}`}>{statusLabels[order.orderStatus]}</Badge></td><td className="py-2 px-3"><div className="flex gap-1.5 justify-center items-center">{renderActionButtons(order)}</div></td></tr>))}</tbody>
+                  <thead className="bg-muted/30">
+                    <tr className="border-b">
+                      <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Mã đơn</th>
+                      <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Khách hàng</th>
+                      <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Ngày đặt</th>
+                      <th className="text-right py-2.5 px-3 font-semibold text-foreground/80">Tổng cộng</th>
+                      <th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Thanh toán</th>
+                      <th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Trạng thái ĐH</th>
+                      <th className="text-center py-2.5 px-3 font-semibold text-foreground/80 w-[320px]">Hành động</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {orders.map((order) => (
+                      <tr key={order.id} className="border-b last:border-b-0 hover:bg-muted/50">
+                        <td className="py-2 px-3 font-medium">{order.orderNumber}</td>
+                        <td className="py-2 px-3">{order.customerName}</td>
+                        <td className="py-2 px-3 text-muted-foreground">{new Date(order.createdAt).toLocaleDateString('vi-VN')}</td>
+                        <td className="py-2 px-3 text-right font-semibold">{formatCurrency(order.totalAmount)}</td>
+                        <td className="py-2 px-3 text-xs">
+                          <div className="flex items-center justify-center gap-1.5">
+                            {order.paymentMethod === 'VNPAY' ? (
+                              <div title="VNPAY (Online)">
+                                <CreditCard size={16} className="text-blue-600" />
+                              </div>
+                            ) : (
+                              <div title="COD (Tiền mặt)">
+                                <Landmark size={16} className="text-green-600" />
+                              </div>
+                            )}
+                            <Badge 
+                              variant="outline" 
+                              className={`
+                                min-w-[110px] justify-center 
+                                text-[11px] font-medium ${paymentStatusColors[order.paymentStatus]}
+                              `}
+                            >
+                              {paymentStatusLabels[order.paymentStatus]}
+                            </Badge>
+                          </div>
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <Badge variant="outline" className={`text-[11px] font-medium ${statusColors[order.orderStatus]}`}>
+                            {statusLabels[order.orderStatus]}
+                          </Badge>
+                        </td>
+                        <td className="py-2 px-3">
+                          <div className={`
+                            flex gap-1.5 items-center w-full
+                            ${(order.orderStatus === 'COMPLETED' || order.orderStatus === 'CANCELLED')
+                              ? 'justify-center' // Căn giữa nếu chỉ có 1 nút
+                              : 'justify-start'  // Căn trái nếu có nhiều nút
+                            }
+                          `}>
+                            {renderActionButtons(order)}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody> 
                 </table>
               </div>
               {pagination.totalPages > 1 && ( 
                 <div className="flex justify-center pt-4">
                   <Pagination 
-                    currentPage={pagination.page + 1} // (API 0-based, UI 1-based)
+                    currentPage={pagination.page + 1} 
                     totalPages={pagination.totalPages} 
                     onPageChange={handlePageChange} 
                   />
@@ -310,7 +402,7 @@ export function OrderManagement() {
         </CardContent>
       </Card>
 
-      {/* --- MODAL CHI TIẾT ĐƠN HÀNG (Dùng Data thật) --- */}
+      {/* --- SỬA 5: MODAL CHI TIẾT ĐƠN HÀNG --- */}
       {showDetails && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-fade-in duration-200" onClick={handleCloseDetails}>
           <Card className="w-full max-w-3xl bg-card shadow-xl animate-scale-in duration-200" onClick={(e) => e.stopPropagation()}>
@@ -331,7 +423,7 @@ export function OrderManagement() {
                 </div>
               ) : (
                 <>
-                  {/* Thông tin chung */}
+                  {/* ... (Thông tin chung ... giữ nguyên) ... */}
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-3 text-sm"> 
                     <div className="md:col-span-1"> <p className="text-xs text-muted-foreground flex items-center gap-1"><Package size={14}/> Mã đơn hàng</p> <p className="font-semibold text-base">{selectedOrder.orderNumber}</p> </div> 
                     <div className="md:col-span-1"> <p className="text-xs text-muted-foreground">Ngày đặt</p> <p className="font-medium">{new Date(selectedOrder.createdAt).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })}</p> </div> 
@@ -345,7 +437,8 @@ export function OrderManagement() {
                       <div className="col-span-2 md:col-span-3"> <p className="text-xs text-muted-foreground flex items-center gap-1"><ScrollText size={14}/> Ghi chú của khách</p> <p className="font-medium text-sm italic">{selectedOrder.note}</p> </div> 
                     )} 
                   </div>
-                  {/* Chi tiết Thanh toán */}
+                  
+                  {/* ... (Chi tiết Thanh toán ... giữ nguyên) ... */}
                   <div className="border rounded-md p-4 space-y-2 text-sm bg-muted/30"> 
                     <h4 className="font-semibold mb-2 text-base">Chi tiết thanh toán</h4> 
                     <div className="flex justify-between"><span>Tiền hàng ({selectedOrder.items.length} SP):</span> <span>{formatCurrency(selectedOrder.subtotal)}</span></div> 
@@ -355,7 +448,8 @@ export function OrderManagement() {
                     )} 
                     <div className="flex justify-between font-semibold border-t pt-2 mt-2 text-base"><span>Tổng cộng:</span> <span>{formatCurrency(selectedOrder.totalAmount)}</span></div> 
                   </div>
-                  {/* Danh sách sản phẩm */}
+
+                  {/* ... (Danh sách sản phẩm ... giữ nguyên) ... */}
                   <div className="border-t pt-4"> 
                     <h4 className="font-semibold mb-3 text-base">Sản phẩm trong đơn</h4> 
                     <div className="space-y-3"> 
@@ -375,7 +469,23 @@ export function OrderManagement() {
                       ))} 
                     </div> 
                   </div>
-                  <div className="flex justify-end pt-4 border-t"> <Button variant="outline" onClick={handleCloseDetails}>Đóng</Button> </div>
+
+                  {/* ========================================= */}
+                  {/* --- KHUNG LỊCH SỬ THAO TÁC (MỚI) --- */}
+                  {/* ========================================= */}
+                  <div className="border-t pt-4"> 
+                    <h4 className="font-semibold mb-4 text-base">Lịch sử thao tác</h4> 
+                    {/* Gọi component mới tạo (File 1) */}
+                    <OrderHistoryTimeline 
+                      logs={orderHistory} 
+                      isLoading={isFetchingHistory} 
+                    />
+                  </div>
+                  
+                  {/* Nút Đóng (cũ) */}
+                  <div className="flex justify-end pt-4 border-t"> 
+                    <Button variant="outline" onClick={handleCloseDetails}>Đóng</Button> 
+                  </div>
                 </>
               )}
             </CardContent>

@@ -5,7 +5,17 @@ import { useParams, useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/authStore";
 import { toast } from "sonner";
 import { AdminOrderDetailDTO, OrderStatus, PaymentStatus } from "@/types/adminOrderDTO";
-import { Loader2, Package, MapPin, PhoneCall, ScrollText, CheckCircle, Ban, AlertCircle } from "lucide-react";
+import {
+  Loader2,
+  Package,
+  MapPin,
+  PhoneCall,
+  ScrollText,
+  CheckCircle,
+  Ban,
+  AlertCircle,
+  CreditCard // <-- 1. ĐÃ THÊM ICON
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -68,21 +78,19 @@ const formatCurrency = (amount: number) => `₫${amount.toLocaleString('vi-VN')}
 export default function OrderDetailPage() {
   const params = useParams();
   const router = useRouter();
-  
-// SỬA Ở ĐÂY: Đọc "params.id" thay vì "params.orderId"
-  const paramId = Array.isArray(params.id) ? params.id[0] : params.id;
-  // Đổi tên biến này để useEffect của bạn (đang dùng 'orderId') vẫn chạy đúng
-  const orderId = paramId; 
 
-  const { isAuthenticated } = useAuthStore();
+  const paramId = Array.isArray(params.id) ? params.id[0] : params.id;
+  const orderId = paramId;
+
+  const { isAuthenticated } = useAuthStore();
 
   const [order, setOrder] = useState<AdminOrderDetailDTO | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
 
-  // fetchDetail (Giữ nguyên) - Bản vá setIsLoading(true) vẫn RẤT QUAN TRỌNG
+  // fetchDetail (Giữ nguyên)
   const fetchDetail = useCallback(async (id: string) => {
-    setIsLoading(true); 
+    setIsLoading(true);
 
     try {
       const response = await manualFetchApi(`/v1/orders/my-orders/${id}`);
@@ -95,27 +103,18 @@ export default function OrderDetailPage() {
     }
   }, [router]);
 
-  // ***** 🛠️ ĐÂY LÀ SỬA LỖI *****
-  // Sửa lại logic useEffect để xử lý race condition
+  // useEffect (Giữ nguyên)
   useEffect(() => {
-    // 1. Nếu orderId chưa sẵn sàng (undefined), không làm gì cả.
-    // Spinner (isLoading=true) sẽ tiếp tục quay.
     if (!orderId) {
       return;
     }
-
-    // 2. Khi orderId đã sẵn sàng:
     if (isAuthenticated) {
-      // 2a. Nếu đã đăng nhập (cả Hard nav và Client nav) -> Fetch
       fetchDetail(orderId as string);
     } else {
-      // 2b. Nếu chưa đăng nhập (Hard nav, auth chưa hydrate)
-      // Dừng spinner để hiện thông báo.
-      setIsLoading(false); 
+      setIsLoading(false);
     }
-  }, [isAuthenticated, orderId, fetchDetail]); 
-  // ***** 🛠️ HẾT SỬA LỖI *****
-  
+  }, [isAuthenticated, orderId, fetchDetail]);
+
   // --- (Các hàm handle... giữ nguyên) ---
   const handleCancelOrder = async () => {
     if (!order) return;
@@ -162,6 +161,30 @@ export default function OrderDetailPage() {
     }
   };
 
+  // --- 2. HÀM MỚI ĐỂ THANH TOÁN LẠI ---
+  const handleRetryPayment = async () => {
+    if (!order) return;
+    setIsUpdating(true);
+    try {
+      // API này sẽ tạo lại link VNPAY cho đơn hàng cũ
+      const response = await manualFetchApi(
+        `/v1/payment/${order.id}/retry-vnpay`, // API MỚI CẦN TẠO Ở BACKEND
+        { method: 'POST' }
+      );
+
+      const paymentUrl = response.data.paymentUrl;
+      if (paymentUrl) {
+        window.location.href = paymentUrl; // Chuyển hướng sang VNPAY
+      } else {
+        throw new Error("Không thể tạo link thanh toán.");
+      }
+
+    } catch (err: any) {
+      toast.error(err.message || "Lỗi khi thử thanh toán lại.");
+      setIsUpdating(false); // Tắt loading nếu lỗi
+    }
+  };
+
   // Logic Render (Giữ nguyên)
   if (isLoading) {
     return (
@@ -170,29 +193,59 @@ export default function OrderDetailPage() {
       </div>
     );
   }
-  
-  if (!isAuthenticated || !order) { 
+
+  if (!isAuthenticated || !order) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <p>
-          {!isAuthenticated 
-            ? "Bạn cần đăng nhập để xem đơn hàng." 
+          {!isAuthenticated
+            ? "Bạn cần đăng nhập để xem đơn hàng."
             : "Không tìm thấy đơn hàng."}
         </p>
       </div>
     );
   }
-  
+
+  // --- 3. SỬA LẠI HÀM RENDERUSERACTIONS ---
   const renderUserActions = () => {
     switch (order.orderStatus) {
       case "PENDING":
-      case "CONFIRMED":
+        // Logic mới: Kiểm tra PENDING của VNPAY hay COD
+if (order.paymentMethod === 'VNPAY' && (order.paymentStatus === 'PENDING' || order.paymentStatus === 'FAILED')) {          // Đây là đơn VNPAY đang chờ thanh toán
+          return (
+            <div className="flex flex-col sm:flex-row gap-4">
+              <Button variant="destructive" onClick={handleCancelOrder} disabled={isUpdating}>
+                <Ban className="w-4 h-4 mr-2" /> Hủy đơn
+              </Button>
+              <Button onClick={handleRetryPayment} disabled={isUpdating}>
+                {isUpdating
+                  ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  : <CreditCard className="w-4 h-4 mr-2" />
+                }
+                Thanh toán lại
+              </Button>
+            </div>
+          );
+        }
+
+        // Đây là đơn COD PENDING (hoặc VNPAY FAILED)
+        // Chỉ cho phép Hủy
         return (
           <Button variant="destructive" onClick={handleCancelOrder} disabled={isUpdating}>
             <Ban className="w-4 h-4 mr-2" /> Hủy đơn hàng
           </Button>
         );
+
+      case "CONFIRMED":
+        // Đơn COD đã xác nhận (VNPAY PENDING không rơi vào đây)
+        return (
+          <Button variant="destructive" onClick={handleCancelOrder} disabled={isUpdating}>
+            <Ban className="w-4 h-4 mr-2" /> Hủy đơn hàng
+          </Button>
+        );
+
       case "DELIVERED":
+        // (Giữ nguyên logic của bạn)
         return (
           <div className="flex flex-col sm:flex-row gap-4">
             <Button variant="destructive" onClick={handleReportIssue} disabled={isUpdating}>
@@ -204,11 +257,12 @@ export default function OrderDetailPage() {
           </div>
         );
       default:
+        // Các trạng thái CANCELLED, COMPLETED, DISPUTE... không có action
         return null;
     }
   };
 
-  // Render nội dung (Giữ nguyên)
+  // Render nội dung (ĐÃ ĐƯỢC DỌN DẸP SẠCH SẼ)
   return (
     <div className="min-h-screen bg-muted/40">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
@@ -252,7 +306,7 @@ export default function OrderDetailPage() {
                 </div>
               )}
             </div>
-            
+
             {/* Chi tiết Thanh toán */}
             <div className="border rounded-md p-4 space-y-2 text-sm bg-muted/30">
               <h4 className="font-semibold mb-2 text-base">Chi tiết thanh toán</h4>
@@ -263,7 +317,7 @@ export default function OrderDetailPage() {
               )}
               <div className="flex justify-between font-semibold border-t pt-2 mt-2 text-base"><span>Tổng cộng:</span> <span>{formatCurrency(order.totalAmount)}</span></div>
             </div>
-            
+
             {/* Danh sách sản phẩm */}
             <div className="border-t pt-4">
               <h4 className="font-semibold mb-3 text-base">Sản phẩm trong đơn</h4>
@@ -284,7 +338,7 @@ export default function OrderDetailPage() {
                 ))}
               </div>
             </div>
-            
+
             {/* --- NÚT HÀNH ĐỘNG CỦA USER --- */}
             <div className="flex justify-end pt-4 border-t">
               {renderUserActions()}
