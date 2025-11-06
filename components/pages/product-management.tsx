@@ -480,12 +480,11 @@ export function ProductManagement() {
                         </td><td className="py-2 px-3 text-muted-foreground text-center">{product.variantCount}</td><td className="py-2 px-3 text-right">
                           {product.salePrice !== null && product.salePrice < product.price ? (
                             <div className="flex flex-col items-end">
-                              <span className="font-semibold text-destructive">{product.salePrice.toLocaleString('vi-VN')}₫</span>
-                              <span className="text-xs text-muted-foreground line-through">{product.price.toLocaleString('vi-VN')}₫</span>
+                              <span className="font-semibold text-destructive">{(product.salePrice?.toLocaleString('vi-VN') ?? '0').toString()}₫</span>
+                              <span className="text-xs text-muted-foreground line-through">{(product.price?.toLocaleString('vi-VN') ?? '0').toString()}₫</span>
                             </div>
                           ) : (
-                            <span>{product.price.toLocaleString('vi-VN')}₫</span>
-                          )}
+                              <span>{(product.price?.toLocaleString('vi-VN') ?? '0').toString()}₫</span>                          )}
                         </td><td className="py-2 px-3 text-center">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${product.active ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"}`}>
                             {product.active ? "Hoạt động" : "Ngừng HĐ"}

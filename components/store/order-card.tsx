@@ -1,6 +1,5 @@
 "use client";
 
-// Sửa: Import đầy đủ DTO và các enums
 import { UserOrderDTO, OrderStatus, PaymentStatus, PaymentMethod } from "@/types/userOrderDTO";
 import {
   Package,
@@ -9,15 +8,15 @@ import {
   Clock,
   XCircle,
   AlertCircle,
-  CreditCard, // <-- Thêm
-  Loader2     // <-- Thêm
+  CreditCard,
+  Loader2 
 } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button"; // <-- Thêm Button
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"; // <-- Dùng Card cho đẹp
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 
-// --- Labels và Colors (Sao chép từ file Admin) ---
+// --- Labels và Colors (Giữ nguyên) ---
 const statusColors: Record<OrderStatus, string> = {
   PENDING: "border-yellow-500/50 bg-yellow-500/10 text-yellow-700 dark:text-yellow-300",
   CONFIRMED: "border-blue-500/50 bg-blue-500/10 text-blue-700 dark:text-blue-300",
@@ -36,9 +35,6 @@ const statusLabels: Record<OrderStatus, string> = {
   CANCELLED: "Đã hủy",
   DISPUTE: "Khiếu nại"
 };
-
-// --- THÊM LABELS CHO PAYMENT ---
-// (Giả sử bạn đã thêm PaymentStatus vào userOrderDTO.ts)
 const paymentStatusLabels: Record<PaymentStatus, string> = {
   PENDING: "Chờ thanh toán",
   PAID: "Đã thanh toán",
@@ -46,21 +42,100 @@ const paymentStatusLabels: Record<PaymentStatus, string> = {
   PENDING_REFUND: "Chờ hoàn tiền",
   REFUNDED: "Đã hoàn tiền"
 };
-// ---
-
-// --- Helper định dạng tiền ---
 const formatCurrency = (amount: number) => `₫${amount.toLocaleString('vi-VN')}`;
+// --- (Hết phần helpers) ---
 
-// --- 1. ĐỊNH NGHĨA PROPS MỚI ---
+
+// --- 1. ĐỊNH NGHĨA PROPS (Giữ nguyên) ---
 interface OrderCardProps {
   order: UserOrderDTO;
-  isRetrying: boolean; // Trạng thái loading
-  onRetryPayment: (orderId: number) => void; // Hàm để gọi
+  isProcessing: boolean;
+  onRetryPayment: (orderId: number) => void;
+  onConfirmDelivery: (orderId: number) => void;
+  onReportIssue: (orderId: number) => void;
 }
 
-export function OrderCard({ order, isRetrying, onRetryPayment }: OrderCardProps) {
+// --- 2. HÀM RENDER NÚT HÀNH ĐỘNG (Giữ nguyên) ---
+const renderActions = (order: UserOrderDTO, isProcessing: boolean, props: OrderCardProps) => {
+  switch (order.orderStatus) {
 
-  // Helper để lấy Icon
+    case "PENDING":
+      if (order.paymentMethod === 'VNPAY' && (order.paymentStatus === 'PENDING' || order.paymentStatus === 'FAILED')) {
+        return (
+          <Button
+            onClick={() => props.onRetryPayment(order.id)}
+            disabled={isProcessing}
+            size="sm"
+          >
+            {isProcessing
+              ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              : <CreditCard className="w-4 h-4 mr-2" />
+            }
+            Thanh toán lại
+          </Button>
+        );
+      }
+      return null;
+
+    case "DELIVERED":
+      return (
+        <div className="flex flex-col sm:flex-row gap-3">
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => props.onReportIssue(order.id)}
+            disabled={isProcessing}
+          >
+            {isProcessing
+              ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              : <AlertCircle className="w-4 h-4 mr-2" />
+            }
+            Khiếu nại
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => props.onConfirmDelivery(order.id)}
+            disabled={isProcessing}
+          >
+            {isProcessing
+              ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              : <CheckCircle className="w-4 h-4 mr-2" />
+            }
+            Đã nhận hàng
+          </Button>
+        </div>
+      );
+
+    case "DISPUTE":
+      return (
+        <Button
+          size="sm"
+          onClick={() => props.onConfirmDelivery(order.id)}
+          disabled={isProcessing}
+        >
+          {isProcessing
+            ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            : <CheckCircle className="w-4 h-4 mr-2" />
+          }
+          Xác nhận đã nhận
+        </Button>
+      );
+
+    default:
+      return null;
+  }
+};
+
+
+// --- 3. COMPONENT CHÍNH ---
+export function OrderCard({
+  order,
+  isProcessing,
+  onRetryPayment,
+  onConfirmDelivery,
+  onReportIssue
+}: OrderCardProps) {
+
   const getStatusIcon = (status: OrderStatus) => {
     switch (status) {
       case "PENDING": return <Clock className="w-5 h-5 text-yellow-500" />;
@@ -74,23 +149,15 @@ export function OrderCard({ order, isRetrying, onRetryPayment }: OrderCardProps)
     }
   };
 
-  // --- 2. THÊM ĐIỀU KIỆN ĐỂ HIỂN THỊ NÚT ---
-  // (Giả sử DTO của bạn đã có 2 trường này từ Backend)
-  const canRetryPayment =
-    order.paymentMethod === 'VNPAY' &&
-    // SỬA LẠI DÒNG NÀY
-    (order.paymentStatus === 'PENDING' || order.paymentStatus === 'FAILED') &&
-    // (Giữ lại cái này để đảm bảo admin chưa đụng vào)
-    order.orderStatus === 'PENDING';
-
   return (
-    // Sửa lại layout dùng Card cho đồng bộ
     <Card className="flex flex-col justify-between hover:shadow-lg transition">
       <CardHeader className="pb-4">
         <div className="flex items-start justify-between">
           <div>
             <p className="text-sm text-muted-foreground">Mã đơn hàng</p>
-            <p className="font-semibold text-lg">{order.orderNumber}</p>
+            <Link href={`/orders/${order.id}`} className="hover:underline">
+              <p className="font-semibold text-lg">{order.orderNumber}</p>
+            </Link>
           </div>
           <div className="flex items-center gap-2">
             {getStatusIcon(order.orderStatus)}
@@ -99,23 +166,23 @@ export function OrderCard({ order, isRetrying, onRetryPayment }: OrderCardProps)
             </Badge>
           </div>
         </div>
+        
+        {/* 👇👇👇 SỬA LỖI Ở ĐÂY 👇👇👇 */}
         <p className="text-sm text-muted-foreground pt-2">
           {new Date(order.createdAt).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })}
-        </p>
+        </p> 
+        {/* 👆👆👆 ĐÃ SỬA TỪ </page> THÀNH </p> 👆👆👆 */}
+
       </CardHeader>
 
       <CardContent className="space-y-3 pt-0 pb-4">
-
-        {/* --- 3. THÊM HIỂN THỊ PAYMENT --- */}
         <div className="flex justify-between items-center">
           <span className="text-muted-foreground text-sm">Thanh toán:</span>
           <span className="font-medium flex items-center gap-1.5 text-sm">
-            {/* (Giả sử DTO đã có paymentMethod) */}
             {order.paymentMethod === 'VNPAY'
               ? <CreditCard className="w-4 h-4 text-blue-600" />
               : <Truck className="w-4 h-4 text-green-600" />
             }
-            {/* (Giả sử DTO đã có paymentStatus) */}
             {paymentStatusLabels[order.paymentStatus] || order.paymentStatus}
           </span>
         </div>
@@ -133,25 +200,20 @@ export function OrderCard({ order, isRetrying, onRetryPayment }: OrderCardProps)
         </div>
       </CardContent>
 
-      <CardFooter className="flex gap-2">
-        {/* --- 4. SỬA LẠI CÁC NÚT BẤM --- */}
-        <Link href={`/orders/${order.id}`} className="flex-1">
-          <Button variant="outline" className="w-full bg-transparent">Xem chi tiết</Button>
+      <CardFooter className="flex justify-between items-center pt-4 border-t">
+        <Link href={`/orders/${order.id}`}>
+          <Button variant="ghost" size="sm">Xem chi tiết</Button>
         </Link>
 
-        {canRetryPayment && (
-          <Button
-            className="flex-1"
-            disabled={isRetrying} // Sẽ bị vô hiệu hóa nếu 'cha' báo
-            onClick={() => onRetryPayment(order.id)} // Gọi hàm của 'cha'
-          >
-            {isRetrying
-              ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              : <CreditCard className="w-4 h-4 mr-2" />
-            }
-            {isRetrying ? "Đang xử lý..." : "Thanh toán lại"}
-          </Button>
-        )}
+        <div className="flex justify-end">
+          {renderActions(order, isProcessing, {
+            order,
+            isProcessing,
+            onRetryPayment,
+            onConfirmDelivery,
+            onReportIssue
+          })}
+        </div>
       </CardFooter>
     </Card>
   );

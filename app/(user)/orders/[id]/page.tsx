@@ -256,6 +256,17 @@ if (order.paymentMethod === 'VNPAY' && (order.paymentStatus === 'PENDING' || ord
             </Button>
           </div>
         );
+        case "DISPUTE":
+      // Nếu đơn hàng đang bị khiếu nại (chưa nhận được),
+      // cho phép người dùng xác nhận là "Đã nhận được hàng"
+      // (ví dụ: hàng về trễ sau khi đã bấm khiếu nại).
+      // Nút này sẽ gọi hàm 'handleConfirmDelivery' để hoàn tất đơn hàng.
+      return (
+        <Button onClick={handleConfirmDelivery} disabled={isUpdating}>
+          <CheckCircle className="w-4 h-4 mr-2" /> 
+          Xác nhận Đã nhận được hàng
+        </Button>
+      );
       default:
         // Các trạng thái CANCELLED, COMPLETED, DISPUTE... không có action
         return null;

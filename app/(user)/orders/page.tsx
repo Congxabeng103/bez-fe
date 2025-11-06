@@ -8,9 +8,10 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, useCallback } from "react";
 import { Package, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { PageResponseDTO, UserOrderDTO } from "@/types/userOrderDTO";
+// Sửa: Thêm OrderStatus để dùng trong hàm update
+import { PageResponseDTO, UserOrderDTO, OrderStatus } from "@/types/userOrderDTO"; 
 
-// --- Thêm Helper API Call ---
+// --- Helper API Call (Giữ nguyên) ---
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
 const manualFetchApi = async (url: string, options: RequestInit = {}) => {
   const { token } = useAuthStore.getState();
@@ -25,24 +26,23 @@ const manualFetchApi = async (url: string, options: RequestInit = {}) => {
   if (!response.ok || responseData.status !== 'SUCCESS') {
     throw new Error(responseData.message || "Có lỗi xảy ra");
   }
-  return responseData; // Trả về toàn bộ response
+  return responseData;
 };
 // --- Hết Helper ---
 
 export default function OrdersPage() {
-  // Lấy 'isAuthenticated' từ store
   const { isAuthenticated } = useAuthStore();
   const router = useRouter();
 
   const [orders, setOrders] = useState<UserOrderDTO[]>([]);
-  // SỬA: Khởi tạo isLoading là true
   const [isLoading, setIsLoading] = useState(true);
   const [pagination, setPagination] = useState({ page: 0, totalPages: 1, size: 5 });
 
-  // --- 1. THÊM STATE ĐỂ BIẾT NÚT NÀO ĐANG LOADING ---
-  const [retryingOrderId, setRetryingOrderId] = useState<number | null>(null);
+  // --- 1. SỬA: DÙNG 1 STATE LOADING THỐNG NHẤT ---
+  // 'retryingOrderId' đổi tên thành 'processingOrderId' để dùng chung
+  const [processingOrderId, setProcessingOrderId] = useState<number | null>(null);
 
-  // SỬA LỖI 2: Chỉ fetch khi 'isAuthenticated' là true
+  // fetchMyOrders (Giữ nguyên)
   const fetchMyOrders = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -50,52 +50,88 @@ export default function OrdersPage() {
         `/v1/orders/my-orders?page=${pagination.page}&size=${pagination.size}`
       );
       const data: PageResponseDTO<UserOrderDTO> = response.data;
-
       setOrders(data.content);
       setPagination(prev => ({
         ...prev,
         totalPages: data.totalPages
       }));
-
     } catch (err: any) {
       toast.error(err.message || "Lỗi khi tải đơn hàng.");
     } finally {
       setIsLoading(false);
     }
-  }, [pagination.page, pagination.size]); // Chỉ phụ thuộc vào phân trang
+  }, [pagination.page, pagination.size]);
 
+  // useEffect (Giữ nguyên)
   useEffect(() => {
-    // Nếu store đã tải và xác nhận 'isAuthenticated'
     if (isAuthenticated) {
       fetchMyOrders();
     } else {
       setIsLoading(false);
     }
-  }, [isAuthenticated, fetchMyOrders]); // Chạy lại khi auth thay đổi
+  }, [isAuthenticated, fetchMyOrders]);
 
-  // --- 2. THÊM HÀM XỬ LÝ THANH TOÁN LẠI ---
+  // --- HÀM CẬP NHẬT TRẠNG THÁI 1 ĐƠN HÀNG TRONG LIST ---
+  const updateOrderStatusInList = (orderId: number, newStatus: OrderStatus) => {
+    setOrders(prevOrders =>
+      prevOrders.map(o =>
+        o.id === orderId ? { ...o, orderStatus: newStatus } : o
+      )
+    );
+  };
+
+  // --- 2. HÀM THANH TOÁN LẠI (Sửa lại tên state) ---
   const handleRetryPayment = async (orderId: number) => {
-    setRetryingOrderId(orderId); // Báo là: "Nút của đơn này đang load"
+    setProcessingOrderId(orderId); // Báo là: "Nút của đơn này đang load"
     try {
-      // Gọi API backend (đã có)
       const response = await manualFetchApi(
         `/v1/payment/${orderId}/retry-vnpay`,
         { method: 'POST' }
       );
       const paymentUrl = response.data.paymentUrl;
       if (paymentUrl) {
-        window.location.href = paymentUrl; // Redirect sang VNPAY
+        window.location.href = paymentUrl;
       } else {
         throw new Error("Không thể tạo link thanh toán.");
       }
     } catch (err: any) {
       toast.error(err.message || "Lỗi khi thử thanh toán lại.");
-      setRetryingOrderId(null); // Tắt loading nếu lỗi
+      setProcessingOrderId(null); // Tắt loading nếu lỗi
     }
-    // Không cần 'finally' vì nếu thành công là đã redirect đi rồi.
   };
 
-  // SỬA LỖI 3: Chỉ check 'isLoading'
+  // --- 3. HÀM MỚI: XÁC NHẬN ĐÃ NHẬN HÀNG ---
+  const handleConfirmDelivery = async (orderId: number) => {
+    setProcessingOrderId(orderId);
+    try {
+      await manualFetchApi(`/v1/orders/my-orders/${orderId}/complete`, { method: 'PUT' });
+      toast.success("Xác nhận đã nhận hàng thành công!");
+      // Cập nhật lại list orders để đổi trạng thái
+      updateOrderStatusInList(orderId, 'COMPLETED');
+    } catch (err: any) {
+      toast.error(err.message || "Lỗi khi xác nhận.");
+    } finally {
+      setProcessingOrderId(null); // Tắt loading
+    }
+  };
+
+  // --- 4. HÀM MỚI: KHIẾU NẠI ---
+  const handleReportIssue = async (orderId: number) => {
+    if (!confirm("Bạn muốn báo cáo vấn đề (chưa nhận được hàng) với đơn hàng này?")) return;
+    setProcessingOrderId(orderId);
+    try {
+      await manualFetchApi(`/v1/orders/my-orders/${orderId}/report-issue`, { method: 'PUT' });
+      toast.success("Đã gửi khiếu nại. Chúng tôi sẽ liên hệ với bạn.");
+      // Cập nhật lại list orders để đổi trạng thái
+      updateOrderStatusInList(orderId, 'DISPUTE');
+    } catch (err: any) {
+      toast.error(err.message || "Lỗi khi gửi khiếu nại.");
+    } finally {
+      setProcessingOrderId(null); // Tắt loading
+    }
+  };
+
+  // Loading (Giữ nguyên)
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -104,6 +140,7 @@ export default function OrdersPage() {
     );
   }
 
+  // Render (Giữ nguyên)
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
@@ -127,15 +164,24 @@ export default function OrdersPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
-            {/* --- 3. SỬA CHỖ NÀY ĐỂ TRUYỀN PROPS XUỐNG --- */}
+            {/* --- 5. SỬA CHỖ NÀY: TRUYỀN TẤT CẢ PROPS XUỐNG --- */}
             {orders.map((order) => (
               <OrderCard
                 key={order.id}
                 order={order}
-                // Truyền hàm xử lý xuống
+                
+                // Props cho nút "Thanh toán lại"
                 onRetryPayment={handleRetryPayment}
+                
+                // Props cho nút "Đã nhận hàng"
+                onConfirmDelivery={handleConfirmDelivery}
+                
+                // Props cho nút "Khiếu nại"
+                onReportIssue={handleReportIssue}
+                
                 // Báo cho Card biết nó có đang loading hay không
-                isRetrying={retryingOrderId === order.id}
+                // Đổi 'isRetrying' thành 'isProcessing' cho thống nhất
+                isProcessing={processingOrderId === order.id}
               />
             ))}
 

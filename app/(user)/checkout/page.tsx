@@ -203,8 +203,10 @@ export default function CheckoutPage() {
         const newOrder = response.data;
         toast.success("Đặt hàng thành công!");
         clearCart(); 
-        router.push(`/order-confirmation?orderId=${newOrder.orderId}`);
-
+// --- SỬA Ở ĐÂY ---
+        // Thêm "&method=COD" vào URL
+        router.push(`/order-confirmation?orderId=${newOrder.orderId}&method=COD`);
+        // --- KẾT THÚC SỬA ---
       } else if (paymentMethod === 'VNPAY') {
         const paymentUrl = response.data.paymentUrl; 
         if (paymentUrl) {
