@@ -2,12 +2,13 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+// Sửa: Import `buttonVariants`
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { 
   Search, Eye, Download, Ban, X, Check, Truck, Undo, Package, 
   MapPin, PhoneCall, ScrollText, Loader2, AlertCircle, PackageCheck,
-  CreditCard, Landmark 
+  CreditCard, Landmark, History
 } from "lucide-react";
 import { Pagination } from "@/components/store/pagination";
 import { toast } from "sonner";
@@ -15,10 +16,26 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuthStore } from "@/lib/authStore";
 
-// --- SỬA 1: IMPORT MỚI ---
+// Import Alert Dialog
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+
+// Import Timeline
 import { OrderHistoryTimeline } from "@/components/admin/order-history-timeline"; 
 
-// --- Import DTOs thật ---
+// Import helper 'cn' (Rất quan trọng)
+// (Hãy chắc chắn đường dẫn này đúng với dự án của bạn)
+import { cn } from "@/lib/utils"; 
+
+// --- Import DTOs ---
 import {
   AdminOrderDTO,
   AdminOrderDetailDTO,
@@ -27,8 +44,6 @@ import {
   PageResponseDTO
 } from "@/types/adminOrderDTO"; 
 
-// --- SỬA 2: THÊM DTO MỚI CHO LOG ---
-// (Tên 'OrderAuditLogResponseDTO' phải khớp với DTO Backend của bạn)
 type OrderAuditLogResponseDTO = {
   id: number;
   staffName: string;
@@ -36,10 +51,10 @@ type OrderAuditLogResponseDTO = {
   fieldChanged?: string;
   oldValue?: string;
   newValue?: string;
-  createdAt: string; // ISO String
+  createdAt: string; 
 };
 
-// --- Thêm Helper API Call (Giữ nguyên) ---
+// --- Helper API Call ---
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
 const manualFetchApi = async (url: string, options: RequestInit = {}) => {
   const { token } = useAuthStore.getState();
@@ -51,17 +66,14 @@ const manualFetchApi = async (url: string, options: RequestInit = {}) => {
   }
   const response = await fetch(`${API_URL}${url}`, { ...options, headers });
   const responseData = await response.json();
-  if (!response.ok || responseData.status !== 'SUCCESS') {
+  if (!response.ok) { // Dùng response.ok để check lỗi
     throw new Error(responseData.message || "Có lỗi xảy ra");
   }
-  return responseData; // (Giữ nguyên, vì các hàm khác đang dùng response.data)
+  return responseData;
 };
-// --- Hết Helper ---
 
-
+// --- Hằng số & Helpers ---
 const ITEMS_PER_PAGE = 10; 
-
-// --- (Labels và Colors giữ nguyên) ---
 const statusColors: Record<OrderStatus, string> = { 
   PENDING: "border-yellow-500/50 bg-yellow-500/10 text-yellow-700 dark:text-yellow-300", 
   CONFIRMED: "border-blue-500/50 bg-blue-500/10 text-blue-700 dark:text-blue-300", 
@@ -94,9 +106,6 @@ const paymentStatusColors: Record<PaymentStatus, string> = {
   PENDING_REFUND: "border-orange-500/50 bg-orange-500/10 text-orange-700 dark:text-orange-300",
   REFUNDED: "border-gray-500/50 bg-gray-500/10 text-gray-700 dark:text-gray-300"
 };
-// ---
-
-// --- Helper định dạng tiền ---
 const formatCurrency = (amount: number) => `₫${amount.toLocaleString('vi-VN')}`;
 
 // --- Component Chính ---
@@ -115,14 +124,46 @@ export function OrderManagement() {
   const [selectedOrder, setSelectedOrder] = useState<AdminOrderDetailDTO | null>(null);
   const [isFetchingItems, setIsFetchingItems] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
-  
-  // --- SỬA 3: THÊM STATE MỚI ĐỂ LƯU LỊCH SỬ ---
   const [orderHistory, setOrderHistory] = useState<OrderAuditLogResponseDTO[]>([]);
   const [isFetchingHistory, setIsFetchingHistory] = useState(false);
+  const [isRefunding, setIsRefunding] = useState(false);
+  const [refundingOrderId, setRefundingOrderId] = useState<number | null>(null);
+
+  // State cho Dialog
+  type DialogState = {
+    isOpen: boolean;
+    title: string;
+    description: string;
+    confirmText: string;
+    confirmVariant: "default" | "destructive";
+    onConfirm: () => void;
+  };
+  const [dialogState, setDialogState] = useState<DialogState | null>(null);
+
+  // Hàm mở popup
+  const openConfirmationDialog = (
+    title: string, 
+    description: string, 
+    onConfirm: () => void,
+    confirmText = "Xác nhận",
+    confirmVariant: "default" | "destructive" = "default"
+  ) => {
+    setDialogState({
+      isOpen: true,
+      title,
+      description,
+      onConfirm,
+      confirmText,
+      confirmVariant
+    });
+  };
+
+  // Hàm đóng popup
+  const closeConfirmationDialog = () => {
+    setDialogState(null);
+  };
   
-  // --- Logic gọi API (Giữ nguyên) ---
-  
-  // 1. Fetch danh sách đơn hàng (Giữ nguyên)
+  // --- Logic API ---
   const fetchOrders = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -153,17 +194,14 @@ export function OrderManagement() {
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]); 
-  
-  // --- SỬA 4: SỬA HÀM NÀY ĐỂ GỌI 2 API ---
+
   const handleViewDetails = async (order: AdminOrderDTO) => {
-    // 1. Mở modal và bật loading
     setSelectedOrder(null); 
     setShowDetails(true);
     setIsFetchingItems(true);
-    setIsFetchingHistory(true); // <-- Bật loading lịch sử
-    setOrderHistory([]);        // <-- Xóa lịch sử cũ
+    setIsFetchingHistory(true); 
+    setOrderHistory([]); 
 
-    // 2. Luồng 1: Tải chi tiết đơn (như cũ)
     try {
       const response = await manualFetchApi(`/v1/orders/${order.id}`);
       setSelectedOrder(response.data as AdminOrderDetailDTO);
@@ -173,31 +211,18 @@ export function OrderManagement() {
       setIsFetchingItems(false);
     }
     
-    // 3. Luồng 2: Tải lịch sử (DÙNG API MỚI)
     try {
       const historyResponse = await manualFetchApi(`/v1/orders/${order.id}/history`);
       setOrderHistory(historyResponse.data as OrderAuditLogResponseDTO[]);
     } catch (err: any) {
       toast.error(err.message || "Lỗi khi tải lịch sử đơn hàng.");
     } finally {
-      setIsFetchingHistory(false); // <-- Tắt loading lịch sử
+      setIsFetchingHistory(false); 
     }
   };
 
-  // 3. Cập nhật trạng thái (Giữ nguyên)
+  // Hàm gọi API Cập nhật Trạng thái (đã tách confirm)
   const handleUpdateStatus = async (orderId: number, newStatus: OrderStatus) => {
-    
-    if (newStatus === 'CANCELLED') {
-      if (!confirm("Bạn có chắc muốn HỦY đơn hàng này? Hàng sẽ được hoàn kho (nếu cần).")) {
-        return;
-      }
-    }
-    if (newStatus === 'PENDING') {
-      if (!confirm("Hoàn lại trạng thái 'Chờ xác nhận'? Hàng sẽ được cộng lại kho (nếu cần).")) {
-        return;
-      }
-    }
-    
     try {
       const response = await manualFetchApi(`/v1/orders/${orderId}/status`, {
         method: 'PUT',
@@ -214,19 +239,73 @@ export function OrderManagement() {
       toast.success(`Đã cập nhật đơn #${updatedOrder.orderNumber} sang trạng thái "${statusLabels[newStatus]}"`);
       
       if (selectedOrder && selectedOrder.id === orderId) {
-        setSelectedOrder(prev => prev ? ({ ...prev, orderStatus: newStatus }) : null);
+        setSelectedOrder(prev => prev ? ({ 
+            ...prev, 
+            orderStatus: updatedOrder.orderStatus, 
+            paymentStatus: updatedOrder.paymentStatus 
+        }) : null);
       }
       
     } catch (err: any) {
       toast.error(err.message || "Lỗi khi cập nhật trạng thái.");
+    } finally {
+      closeConfirmationDialog(); // Luôn đóng popup
+    }
+  };
+
+  // Hàm gọi API Hoàn tiền (đã tách confirm)
+  const handleRequestRefund = async (orderId: number) => {
+    if (isRefunding) return;
+    
+    setIsRefunding(true);
+    setRefundingOrderId(orderId);
+    
+    try {
+      const response = await manualFetchApi(`/v1/payment/refund/vnpay/${orderId}`, {
+        method: 'POST',
+      });
+      
+      toast.success(response.message || "Gửi yêu cầu hoàn tiền thành công!");
+
+      setOrders(prevOrders =>
+        prevOrders.map(o =>
+          o.id === orderId ? { ...o, paymentStatus: 'REFUNDED' } : o 
+        )
+      );
+
+      if (selectedOrder && selectedOrder.id === orderId) {
+        setSelectedOrder(prev => prev ? ({ ...prev, paymentStatus: 'REFUNDED' }) : null);
+        
+        setIsFetchingHistory(true);
+        try {
+            const historyResponse = await manualFetchApi(`/v1/orders/${orderId}/history`);
+            setOrderHistory(historyResponse.data as OrderAuditLogResponseDTO[]);
+        } catch (err: any) {
+            console.error("Lỗi tải lại lịch sử sau hoàn tiền:", err);
+        } finally {
+            setIsFetchingHistory(false);
+        }
+      }
+    
+    } catch (err: any) {
+      toast.error(err.message || "Lỗi khi thực hiện hoàn tiền.");
+    } finally {
+      setIsRefunding(false);
+      setRefundingOrderId(null);
+      closeConfirmationDialog(); // Luôn đóng popup
     }
   };
   
-  const handleEnterTrackingCode = (orderId: number) => {
-     handleUpdateStatus(orderId, "SHIPPING");
+  const handleEnterTrackingCode = (orderId: number, orderNumber: string) => {
+     openConfirmationDialog(
+        'Xác nhận Gửi hàng',
+        `Bạn có chắc muốn chuyển đơn hàng #${orderNumber} sang trạng thái "Đang giao"?`,
+        () => handleUpdateStatus(orderId, "SHIPPING"),
+        "Xác nhận Gửi"
+      );
   };
-
-  // (Các hàm helper khác giữ nguyên)
+  
+  // Helpers
   const handleCloseDetails = () => { setShowDetails(false); setSelectedOrder(null); };
   const handleStatusFilterChange = (newStatus: string) => {
     setStatusFilter(newStatus as OrderStatus | "ALL");
@@ -235,70 +314,137 @@ export function OrderManagement() {
   const handlePageChange = (newPage: number) => {
     setCurrentPage(newPage - 1); 
   };
-  const exportToExcel = () => {
-    toast.info("Chức năng xuất Excel đang được phát triển.");
-  };
 
-  // --- 4. Render Nút Hành Động (Giữ nguyên) ---
+  // --- Render Nút (Đã tích hợp Dialog) ---
   const renderActionButtons = (order: AdminOrderDTO) => {
     const buttons = [];
-    
-    // (Giữ nguyên: Nút có chiều rộng cố định w-[110px])
     const buttonBaseClass = "w-[110px] justify-center text-xs h-8";
+    const isLoadingRefund = isRefunding && refundingOrderId === order.id;
     
-    // Nút "Xem" luôn có
+    // Nút Xem
     buttons.push( <Button key="view" variant="outline" size="sm" className="h-8 px-2" onClick={() => handleViewDetails(order)}> <Eye size={14} /> </Button> );
     
-    // Các nút điều kiện
+    // Nút Hoàn tiền
+    if (order.paymentStatus === 'PENDING_REFUND' && order.paymentMethod === 'VNPAY') {
+        buttons.push(
+            <Button 
+                key="refund" 
+                size="sm" 
+                variant="destructive"
+                className={`bg-orange-600 hover:bg-orange-700 text-white ${buttonBaseClass}`} 
+                onClick={() => openConfirmationDialog(
+                  'Xác nhận Hoàn Tiền',
+                  `Bạn có chắc muốn hoàn ${formatCurrency(order.totalAmount)} qua VNPAY cho đơn #${order.orderNumber}? Hành động này KHÔNG THỂ hoàn tác.`,
+                  () => handleRequestRefund(order.id),
+                  "Xác nhận Hoàn tiền",
+                  "destructive" // Dùng destructive để áp dụng style cho nút trong dialog
+                )}
+                disabled={isRefunding}
+            >
+                {isLoadingRefund ? (
+                    <Loader2 size={14} className="mr-1 animate-spin" />
+                ) : (
+                    <History size={14} className="mr-1" />
+                )}
+                Hoàn tiền
+            </Button>
+        );
+    }
+
+    // Các nút theo trạng thái
     switch (order.orderStatus) {
       case "PENDING":
         const isVnpayUnpaid = order.paymentMethod === 'VNPAY' && 
                               (order.paymentStatus === 'PENDING' || order.paymentStatus === 'FAILED');
-
         if (isVnpayUnpaid) {
-            buttons.push( <Button key="cancel" size="sm" variant="destructive" className={buttonBaseClass} onClick={() => handleUpdateStatus(order.id, "CANCELLED")}> <Ban size={14} className="mr-1"/> Hủy </Button> );
+          buttons.push( <Button key="cancel" size="sm" variant="destructive" className={buttonBaseClass} onClick={() => openConfirmationDialog(
+              'Xác nhận Hủy Đơn',
+              `Bạn có chắc muốn HỦY đơn hàng #${order.orderNumber}? Đơn VNPAY này chưa được thanh toán.`,
+              () => handleUpdateStatus(order.id, "CANCELLED"),
+              "Xác nhận Hủy", "destructive"
+            )}> <Ban size={14} className="mr-1"/> Hủy </Button> );
         } else {
-            buttons.push( <Button key="confirm" size="sm" variant="secondary" className={`bg-blue-500 hover:bg-blue-600 text-white ${buttonBaseClass}`} onClick={() => handleUpdateStatus(order.id, "CONFIRMED")}> <Check size={14} className="mr-1" /> Xác nhận </Button> );
-            buttons.push( <Button key="cancel" size="sm" variant="destructive" className={buttonBaseClass} onClick={() => handleUpdateStatus(order.id, "CANCELLED")}> <Ban size={14} className="mr-1"/> Hủy </Button> );
+          buttons.push( <Button key="confirm" size="sm" variant="secondary" className={`bg-blue-500 hover:bg-blue-600 text-white ${buttonBaseClass}`} onClick={() => openConfirmationDialog(
+              'Xác nhận Đơn hàng',
+              `Bạn có chắc muốn XÁC NHẬN đơn hàng #${order.orderNumber}? Hành động này sẽ trừ kho.`,
+              () => handleUpdateStatus(order.id, "CONFIRMED"),
+              "Xác nhận"
+            )}> <Check size={14} className="mr-1" /> Xác nhận </Button> );
+          buttons.push( <Button key="cancel" size="sm" variant="destructive" className={buttonBaseClass} onClick={() => openConfirmationDialog(
+              'Xác nhận Hủy Đơn',
+              `Bạn có chắc muốn HỦY đơn hàng #${order.orderNumber}?`,
+              () => handleUpdateStatus(order.id, "CANCELLED"),
+              "Xác nhận Hủy", "destructive"
+            )}> <Ban size={14} className="mr-1"/> Hủy </Button> );
         }
         break;
-        
       case "CONFIRMED":
-        buttons.push( <Button key="ship" size="sm" variant="secondary" className={`bg-purple-500 hover:bg-purple-600 text-white ${buttonBaseClass}`} onClick={() => handleEnterTrackingCode(order.id)}> <Truck size={14} className="mr-1"/> Gửi hàng </Button> );
-        buttons.push( <Button key="cancel_proc" size="sm" variant="destructive" className={buttonBaseClass} onClick={() => handleUpdateStatus(order.id, "CANCELLED")}> <Ban size={14} className="mr-1"/> Hủy </Button> );
-        buttons.push( <Button key="undo_confirm" size="sm" variant="outline" title="Hoàn lại Chờ xác nhận" className="h-8 px-2" onClick={() => handleUpdateStatus(order.id, "PENDING")}> <Undo size={14} /> </Button> );
+        buttons.push( <Button key="ship" size="sm" variant="secondary" className={`bg-purple-500 hover:bg-purple-600 text-white ${buttonBaseClass}`} onClick={() => handleEnterTrackingCode(order.id, order.orderNumber)}> <Truck size={14} className="mr-1"/> Gửi hàng </Button> );
+        buttons.push( <Button key="cancel_proc" size="sm" variant="destructive" className={buttonBaseClass} onClick={() => openConfirmationDialog(
+            'Xác nhận Hủy Đơn',
+            `Bạn có chắc muốn HỦY đơn hàng #${order.orderNumber}? Hàng sẽ được hoàn kho.`,
+            () => handleUpdateStatus(order.id, "CANCELLED"),
+            "Xác nhận Hủy", "destructive"
+          )}> <Ban size={14} className="mr-1"/> Hủy </Button> );
+        buttons.push( <Button key="undo_confirm" size="sm" variant="outline" title="Hoàn lại Chờ xác nhận" className="h-8 px-2" onClick={() => openConfirmationDialog(
+            'Xác nhận Hoàn tác',
+            `Bạn có chắc muốn hoàn tác đơn #${order.orderNumber} về "Chờ xác nhận"? Hàng sẽ được cộng lại kho.`,
+            () => handleUpdateStatus(order.id, "PENDING"),
+            "Hoàn tác"
+          )}> <Undo size={14} /> </Button> );
         break;
-        
       case "SHIPPING":
-        buttons.push( <Button key="delivered" size="sm" variant="secondary" className={`bg-green-500 hover:bg-green-600 text-white ${buttonBaseClass}`} onClick={() => handleUpdateStatus(order.id, "DELIVERED")}> <Check size={14} className="mr-1" /> Đã giao </Button> );
-        buttons.push( <Button key="cancel_ship" size="sm" variant="destructive" className={buttonBaseClass} onClick={() => handleUpdateStatus(order.id, "CANCELLED")}> <Ban size={14} className="mr-1"/> Hủy </Button> );
+        buttons.push( <Button key="delivered" size="sm" variant="secondary" className={`bg-green-500 hover:bg-green-600 text-white ${buttonBaseClass}`} onClick={() => openConfirmationDialog(
+            'Xác nhận Đã Giao',
+            `Bạn có chắc muốn xác nhận đơn hàng #${order.orderNumber} đã GIAO THÀNH CÔNG?`,
+            () => handleUpdateStatus(order.id, "DELIVERED"),
+            "Đã giao"
+          )}> <Check size={14} className="mr-1" /> Đã giao </Button> );
+        buttons.push( <Button key="cancel_ship" size="sm" variant="destructive" className={buttonBaseClass} onClick={() => openConfirmationDialog(
+            'Xác nhận Hủy Đơn',
+            `Bạn có chắc muốn HỦY đơn hàng #${order.orderNumber} (khi đang giao)? Hàng sẽ được hoàn kho.`,
+            () => handleUpdateStatus(order.id, "CANCELLED"),
+            "Xác nhận Hủy", "destructive"
+          )}> <Ban size={14} className="mr-1"/> Hủy </Button> );
         break;
-        
       case "DELIVERED":
-        buttons.push( <Button key="complete" size="sm" variant="secondary" className={`bg-gray-500 hover:bg-gray-600 text-white ${buttonBaseClass}`} onClick={() => handleUpdateStatus(order.id, "COMPLETED")}> <PackageCheck size={14} className="mr-1" /> Hoàn tất </Button> );
-        buttons.push( <Button key="cancel_delivered" size="sm" variant="destructive" className={buttonBaseClass} onClick={() => handleUpdateStatus(order.id, "CANCELLED")}> <Ban size={14} className="mr-1"/> Hủy/Trả hàng </Button> );
+        buttons.push( <Button key="complete" size="sm" variant="secondary" className={`bg-gray-500 hover:bg-gray-600 text-white ${buttonBaseClass}`} onClick={() => openConfirmationDialog(
+            'Xác nhận Hoàn Tất',
+            `Bạn có chắc muốn HOÀN TẤT đơn hàng #${order.orderNumber}? (Kết thúc vòng đời đơn hàng).`,
+            () => handleUpdateStatus(order.id, "COMPLETED"),
+            "Hoàn tất"
+          )}> <PackageCheck size={14} className="mr-1" /> Hoàn tất </Button> );
+        buttons.push( <Button key="cancel_delivered" size="sm" variant="destructive" className={buttonBaseClass} onClick={() => openConfirmationDialog(
+            'Xác nhận Hủy/Trả hàng',
+            `Bạn có chắc muốn HỦY đơn hàng #${order.orderNumber} (trả hàng)? Hàng sẽ được hoàn kho.`,
+            () => handleUpdateStatus(order.id, "CANCELLED"),
+            "Xác nhận Hủy", "destructive"
+          )}> <Ban size={14} className="mr-1"/> Hủy/Trả hàng </Button> );
         break;
-      
       case "DISPUTE":
-        buttons.push( <Button key="complete" size="sm" variant="secondary" className={`bg-gray-500 hover:bg-gray-600 text-white ${buttonBaseClass}`} onClick={() => handleUpdateStatus(order.id, "COMPLETED")}> <PackageCheck size={14} className="mr-1" /> Hoàn tất </Button> );
-        buttons.push( <Button key="resolve_cancel" size="sm" variant="destructive" className={buttonBaseClass} onClick={() => handleUpdateStatus(order.id, "CANCELLED")}> <Ban size={14} className="mr-1"/> Hủy/Hoàn tiền </Button> );
+        buttons.push( <Button key="complete" size="sm" variant="secondary" className={`bg-gray-500 hover:bg-gray-600 text-white ${buttonBaseClass}`} onClick={() => openConfirmationDialog(
+            'Giải quyết Khiếu nại (Hoàn tất)',
+            `Bạn có chắc muốn HOÀN TẤT đơn hàng #${order.orderNumber} sau khi giải quyết khiếu nại?`,
+            () => handleUpdateStatus(order.id, "COMPLETED"),
+            "Hoàn tất"
+          )}> <PackageCheck size={14} className="mr-1" /> Hoàn tất </Button> );
+        buttons.push( <Button key="resolve_cancel" size="sm" variant="destructive" className={buttonBaseClass} onClick={() => openConfirmationDialog(
+            'Giải quyết Khiếu nại (Hủy/Hoàn tiền)',
+            `Bạn có chắc muốn HỦY đơn hàng #${order.orderNumber} sau khiếu nại? Hàng sẽ được hoàn kho và (nếu cần) hoàn tiền.`,
+            () => handleUpdateStatus(order.id, "CANCELLED"),
+            "Xác nhận Hủy", "destructive"
+          )}> <Ban size={14} className="mr-1"/> Hủy/Hoàn tiền </Button> );
         break;
-        
-      // COMPLETED, CANCELLED sẽ rơi vào default, không push thêm nút nào.
       default: 
         break;
     }
     
     return <>{buttons}</>;
   };
-  // --- KẾT THÚC SỬA ---
 
-
-  // --- JSX ---
+  // --- JSX (Render) ---
   return (
     <div className="p-4 sm:p-6 space-y-6">
-      {/* (Header, Card Danh sách, Table ... giữ nguyên y hệt) */}
-      {/* ... ... */}
       <Card>
         <CardHeader>
           <CardTitle>Danh sách đơn hàng ({pagination.totalElements})</CardTitle>
@@ -375,9 +521,11 @@ export function OrderManagement() {
                         <td className="py-2 px-3">
                           <div className={`
                             flex gap-1.5 items-center w-full
-                            ${(order.orderStatus === 'COMPLETED' || order.orderStatus === 'CANCELLED')
-                              ? 'justify-center' // Căn giữa nếu chỉ có 1 nút
-                              : 'justify-start'  // Căn trái nếu có nhiều nút
+                            ${(order.orderStatus === 'COMPLETED' || 
+                              (order.orderStatus === 'CANCELLED' && order.paymentStatus !== 'PENDING_REFUND')
+                             )
+                              ? 'justify-center'
+                              : 'justify-start'
                             }
                           `}>
                             {renderActionButtons(order)}
@@ -402,7 +550,7 @@ export function OrderManagement() {
         </CardContent>
       </Card>
 
-      {/* --- SỬA 5: MODAL CHI TIẾT ĐƠN HÀNG --- */}
+      {/* --- Modal Chi Tiết --- */}
       {showDetails && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-fade-in duration-200" onClick={handleCloseDetails}>
           <Card className="w-full max-w-3xl bg-card shadow-xl animate-scale-in duration-200" onClick={(e) => e.stopPropagation()}>
@@ -423,7 +571,6 @@ export function OrderManagement() {
                 </div>
               ) : (
                 <>
-                  {/* ... (Thông tin chung ... giữ nguyên) ... */}
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-3 text-sm"> 
                     <div className="md:col-span-1"> <p className="text-xs text-muted-foreground flex items-center gap-1"><Package size={14}/> Mã đơn hàng</p> <p className="font-semibold text-base">{selectedOrder.orderNumber}</p> </div> 
                     <div className="md:col-span-1"> <p className="text-xs text-muted-foreground">Ngày đặt</p> <p className="font-medium">{new Date(selectedOrder.createdAt).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })}</p> </div> 
@@ -438,7 +585,6 @@ export function OrderManagement() {
                     )} 
                   </div>
                   
-                  {/* ... (Chi tiết Thanh toán ... giữ nguyên) ... */}
                   <div className="border rounded-md p-4 space-y-2 text-sm bg-muted/30"> 
                     <h4 className="font-semibold mb-2 text-base">Chi tiết thanh toán</h4> 
                     <div className="flex justify-between"><span>Tiền hàng ({selectedOrder.items.length} SP):</span> <span>{formatCurrency(selectedOrder.subtotal)}</span></div> 
@@ -449,7 +595,6 @@ export function OrderManagement() {
                     <div className="flex justify-between font-semibold border-t pt-2 mt-2 text-base"><span>Tổng cộng:</span> <span>{formatCurrency(selectedOrder.totalAmount)}</span></div> 
                   </div>
 
-                  {/* ... (Danh sách sản phẩm ... giữ nguyên) ... */}
                   <div className="border-t pt-4"> 
                     <h4 className="font-semibold mb-3 text-base">Sản phẩm trong đơn</h4> 
                     <div className="space-y-3"> 
@@ -470,20 +615,39 @@ export function OrderManagement() {
                     </div> 
                   </div>
 
-                  {/* ========================================= */}
-                  {/* --- KHUNG LỊCH SỬ THAO TÁC (MỚI) --- */}
-                  {/* ========================================= */}
                   <div className="border-t pt-4"> 
                     <h4 className="font-semibold mb-4 text-base">Lịch sử thao tác</h4> 
-                    {/* Gọi component mới tạo (File 1) */}
                     <OrderHistoryTimeline 
                       logs={orderHistory} 
                       isLoading={isFetchingHistory} 
                     />
                   </div>
                   
-                  {/* Nút Đóng (cũ) */}
-                  <div className="flex justify-end pt-4 border-t"> 
+                  <div className="flex justify-between items-center pt-4 border-t"> 
+                    <div>
+                      {selectedOrder.paymentMethod === 'VNPAY' && 
+                       selectedOrder.paymentStatus === 'PENDING_REFUND' && (
+                        <Button
+                          variant="destructive"
+                          className="bg-orange-600 hover:bg-orange-700 text-white"
+                          onClick={() => openConfirmationDialog(
+                            'Xác nhận Hoàn Tiền',
+                            `Bạn có chắc muốn hoàn ${formatCurrency(selectedOrder.totalAmount)} qua VNPAY cho đơn #${selectedOrder.orderNumber}? Hành động này KHÔNG THỂ hoàn tác.`,
+                            () => handleRequestRefund(selectedOrder.id),
+                            "Xác nhận Hoàn tiền",
+                            "destructive"
+                          )}
+                          disabled={isRefunding}
+                        >
+                          {isRefunding ? (
+                            <Loader2 size={16} className="mr-2 animate-spin" />
+                          ) : (
+                            <History size={16} className="mr-2" />
+                          )}
+                          Xác nhận Hoàn tiền
+                        </Button>
+                      )}
+                    </div>
                     <Button variant="outline" onClick={handleCloseDetails}>Đóng</Button> 
                   </div>
                 </>
@@ -492,6 +656,34 @@ export function OrderManagement() {
           </Card>
         </div>
       )}
+
+      {/* --- Popup Xác nhận Chung (Đã sửa lỗi TS) --- */}
+      <AlertDialog open={dialogState?.isOpen} onOpenChange={closeConfirmationDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{dialogState?.title}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {dialogState?.description}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={closeConfirmationDialog}>Hủy</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={dialogState?.onConfirm}
+              // Sửa lỗi TS(2322): Dùng `className` thay vì `variant`
+              className={cn(
+                buttonVariants({ variant: dialogState?.confirmVariant }),
+                // Thêm override màu cam cho nút hoàn tiền
+                dialogState?.confirmText === "Xác nhận Hoàn tiền" 
+                ? "bg-orange-600 hover:bg-orange-700" 
+                : ""
+              )}
+            >
+              {dialogState?.confirmText}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
     </div>
   )
