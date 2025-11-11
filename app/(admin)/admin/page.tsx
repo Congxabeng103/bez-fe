@@ -6,7 +6,6 @@ import { Sidebar } from "@/components/layout/sidebar" // 1. Import Sidebar
 // --- 2. Sửa đường dẫn Import (Giả sử các trang của bạn nằm ở đây) ---
 import { Dashboard } from "@/components/pages/dashboard"
 import { ProductManagement } from "@/components/pages/product-management"
-import { AttributeManagement } from "@/components/pages/attribute-management"
 import { VariantManagement } from "@/components/pages/variant-management"
 import { OrderManagement } from "@/components/pages/order-management"
 import { CustomerManagement } from "@/components/pages/customer-management"
@@ -29,7 +28,6 @@ export default function AdminDashboardPage() {
       case "products": return <ProductManagement />;
       case "categories": return <CategoryManagement />;
       case "brands": return <BrandManagement />;
-      case "attributes": return <AttributeManagement />;
       case "variants": return <VariantManagement />;
       case "orders": return <OrderManagement />;
       case "coupons": return <CouponManagement />;

@@ -23,7 +23,6 @@ export function Sidebar({ currentPage, onPageChange }: SidebarProps) {
     { id: "products", label: "Sản phẩm", icon: Package },
     { id: "categories", label: "Danh mục", icon: LayoutList },
     { id: "brands", label: "Thương hiệu", icon: Building },
-    { id: "attributes", label: "Thuộc tính", icon: Tag },
     { id: "variants", label: "Biến thể", icon: Layers },
     { id: "orders", label: "Đơn hàng", icon: ShoppingCart },
     { id: "coupons", label: "Coupons", icon: TicketPercent },
