@@ -9,14 +9,15 @@ import {
   XCircle,
   AlertCircle,
   CreditCard,
-  Loader2 
+  Loader2,
+  Ban, // <-- Icon Ban (Hủy) không cần thiết nữa nếu bạn không muốn hủy ở đây
 } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 
-// --- Labels và Colors (Giữ nguyên) ---
+// --- (Các hằng số Labels và Colors giữ nguyên) ---
 const statusColors: Record<OrderStatus, string> = {
   PENDING: "border-yellow-500/50 bg-yellow-500/10 text-yellow-700 dark:text-yellow-300",
   CONFIRMED: "border-blue-500/50 bg-blue-500/10 text-blue-700 dark:text-blue-300",
@@ -46,7 +47,8 @@ const formatCurrency = (amount: number) => `₫${amount.toLocaleString('vi-VN')}
 // --- (Hết phần helpers) ---
 
 
-// --- 1. ĐỊNH NGHĨA PROPS (Giữ nguyên) ---
+// --- 1. ĐỊNH NGHĨA PROPS (ĐÚNG) ---
+// (Không thêm onCancelOrder theo yêu cầu của bạn)
 interface OrderCardProps {
   order: UserOrderDTO;
   isProcessing: boolean;
@@ -55,7 +57,8 @@ interface OrderCardProps {
   onReportIssue: (orderId: number) => void;
 }
 
-// --- 2. HÀM RENDER NÚT HÀNH ĐỘNG (Giữ nguyên) ---
+// --- 2. HÀM RENDER NÚT HÀNH ĐỘNG (ĐÚNG) ---
+// (Không thêm case PENDING/CONFIRMED cho nút Hủy)
 const renderActions = (order: UserOrderDTO, isProcessing: boolean, props: OrderCardProps) => {
   switch (order.orderStatus) {
 
@@ -75,7 +78,7 @@ const renderActions = (order: UserOrderDTO, isProcessing: boolean, props: OrderC
           </Button>
         );
       }
-      return null;
+      return null; // (Không có nút hủy cho COD ở đây)
 
     case "DELIVERED":
       return (
@@ -83,7 +86,7 @@ const renderActions = (order: UserOrderDTO, isProcessing: boolean, props: OrderC
           <Button
             variant="destructive"
             size="sm"
-            onClick={() => props.onReportIssue(order.id)}
+            onClick={() => props.onReportIssue(order.id)} // <-- Nút này sẽ gọi hàm đã sửa
             disabled={isProcessing}
           >
             {isProcessing
@@ -134,8 +137,10 @@ export function OrderCard({
   onRetryPayment,
   onConfirmDelivery,
   onReportIssue
+  // (Không nhận onCancelOrder)
 }: OrderCardProps) {
 
+  // (Hàm getStatusIcon giữ nguyên)
   const getStatusIcon = (status: OrderStatus) => {
     switch (status) {
       case "PENDING": return <Clock className="w-5 h-5 text-yellow-500" />;
@@ -167,11 +172,10 @@ export function OrderCard({
           </div>
         </div>
         
-        {/* 👇👇👇 SỬA LỖI Ở ĐÂY 👇👇👇 */}
+        {/* (SỬA LỖI HTML </page> THÀNH </p>) */}
         <p className="text-sm text-muted-foreground pt-2">
           {new Date(order.createdAt).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })}
         </p> 
-        {/* 👆👆👆 ĐÃ SỬA TỪ </page> THÀNH </p> 👆👆👆 */}
 
       </CardHeader>
 
@@ -206,6 +210,7 @@ export function OrderCard({
         </Link>
 
         <div className="flex justify-end">
+          {/* (Truyền props, không có onCancelOrder) */}
           {renderActions(order, isProcessing, {
             order,
             isProcessing,

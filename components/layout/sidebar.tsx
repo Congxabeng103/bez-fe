@@ -31,8 +31,7 @@ export function Sidebar({ currentPage, onPageChange }: SidebarProps) {
     // (Phần lọc admin/staff)
     { id: "customers", label: "Khách hàng", icon: Users, adminOnly: true },
     { id: "employees", label: "Nhân viên", icon: UserCheck, adminOnly: true },
-    { id: "activity", label: "Hoạt động NV", icon: Activity, adminOnly: true },
-    { id: "analytics", label: "Thống kê", icon: BarChart3, adminOnly: true },
+    
   ];
 
   // Lọc menu dựa trên quyền (ADMIN/STAFF)

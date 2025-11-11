@@ -21,6 +21,7 @@ export interface AdminOrderDTO {
   orderStatus: OrderStatus;
   paymentStatus: PaymentStatus;
   paymentMethod: PaymentMethod; // <-- Thêm dòng này
+  stockReturned: boolean;  // <-- THÊM DÒNG NÀY
 }
 
 /**
@@ -55,6 +56,8 @@ export interface AdminOrderDetailDTO {
   couponDiscount: number;
   totalAmount: number;
   items: AdminOrderItemDTO[];
+  stockReturned: boolean;  // <-- THÊM DÒNG NÀY
+
 }
 
 /**

@@ -11,8 +11,6 @@ import { VariantManagement } from "@/components/pages/variant-management"
 import { OrderManagement } from "@/components/pages/order-management"
 import { CustomerManagement } from "@/components/pages/customer-management"
 import { EmployeeManagement } from "@/components/pages/employee-management"
-import { ActivityTracking } from "@/components/pages/activity-tracking"
-import { Analytics } from "@/components/pages/analytics"
 import { Profile } from "@/components/pages/profile" // (Profile cũng nên nằm ở đây)
 import { CategoryManagement } from "@/components/pages/category-management";
 import { BrandManagement } from "@/components/pages/brand-management";
@@ -39,8 +37,6 @@ export default function AdminDashboardPage() {
         return <PromotionManagement />;
       case "customers": return <CustomerManagement />;
       case "employees": return <EmployeeManagement />;
-      case "activity": return <ActivityTracking />;
-      case "analytics": return <Analytics />;
       case "profile": return <Profile />;
       default:
         return <Dashboard />;

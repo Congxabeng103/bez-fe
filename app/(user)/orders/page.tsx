@@ -116,18 +116,30 @@ export default function OrdersPage() {
   };
 
   // --- 4. HÀM MỚI: KHIẾU NẠI ---
-  const handleReportIssue = async (orderId: number) => {
-    if (!confirm("Bạn muốn báo cáo vấn đề (chưa nhận được hàng) với đơn hàng này?")) return;
+ const handleReportIssue = async (orderId: number) => {
+    // 1. Hỏi lý do
+    const reason = prompt("Vui lòng nhập nội dung khiếu nại (bắt buộc):");
+    if (!reason || reason.trim() === "") {
+      toast.info("Gửi khiếu nại đã bị hủy bỏ.");
+      return;
+    }
+
     setProcessingOrderId(orderId);
     try {
-      await manualFetchApi(`/v1/orders/my-orders/${orderId}/report-issue`, { method: 'PUT' });
+      // 2. Gửi API với 'body'
+      await manualFetchApi(`/v1/orders/my-orders/${orderId}/report-issue`, {
+        method: 'PUT',
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: reason }) // Gửi DisputeRequestDTO
+      });
+      
       toast.success("Đã gửi khiếu nại. Chúng tôi sẽ liên hệ với bạn.");
-      // Cập nhật lại list orders để đổi trạng thái
       updateOrderStatusInList(orderId, 'DISPUTE');
+      
     } catch (err: any) {
       toast.error(err.message || "Lỗi khi gửi khiếu nại.");
     } finally {
-      setProcessingOrderId(null); // Tắt loading
+      setProcessingOrderId(null);
     }
   };
 
