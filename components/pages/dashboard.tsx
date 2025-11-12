@@ -7,8 +7,9 @@ import {
 } from "recharts"
 import { ChartContainer } from "@/components/ui/chart"
 import { useState, useEffect } from "react"
-import { manualFetchApi } from "@/lib/api" // <-- Đảm bảo bạn import hàm fetch của mình
-import { Loader2 } from "lucide-react" // <-- Thêm icon loading
+import { manualFetchApi } from "@/lib/api" 
+import { Loader2, AlertTriangle } from "lucide-react" // <-- Thêm AlertTriangle
+import { useAuthStore } from "@/lib/authStore" // <-- 1. IMPORT AUTH STORE
 
 // --- 1. Định nghĩa DTOs (Typescript) ---
 type DashboardStatsDTO = {
@@ -44,27 +45,42 @@ export function Dashboard() {
   const [stats, setStats] = useState<DashboardStatsDTO | null>(null);
   const [monthlyData, setMonthlyData] = useState<MonthlyRevenueDTO[]>([]);
   const [categoryData, setCategoryData] = useState<CategorySalesDTO[]>([]);
-  const [topProducts, setTopProducts] = useState<TopSellingProductDTO[]>([]); // <-- Mới
+  const [topProducts, setTopProducts] = useState<TopSellingProductDTO[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // --- 3. SỬA PHÂN QUYỀN ---
+  const [isAuthorized, setIsAuthorized] = useState(false);
+  const { user } = useAuthStore();
   // ---
 
-  // --- 3. Gọi 4 API khi component mount ---
+  // --- 4. SỬA API Call (Kiểm tra quyền trước) ---
   useEffect(() => {
+    
+    // 4.1. Kiểm tra quyền
+    const roles = user?.roles || [];
+    const canView = roles.includes("ADMIN") || roles.includes("MANAGER");
+    setIsAuthorized(canView);
+
+    if (!canView) {
+      setIsLoading(false);
+      return; // Dừng lại, không gọi API nếu là STAFF
+    }
+
+    // 4.2. Chỉ gọi API nếu có quyền
     const fetchDashboardData = async () => {
       setIsLoading(true);
       try {
-        // Gọi song song 4 API
         const [statsRes, monthlyRes, categoryRes, topProductsRes] = await Promise.all([
           manualFetchApi("/v1/dashboard/stats"),
           manualFetchApi("/v1/dashboard/monthly-revenue"),
           manualFetchApi("/v1/dashboard/category-sales"),
-          manualFetchApi("/v1/dashboard/top-products") // <-- Mới
+          manualFetchApi("/v1/dashboard/top-products") 
         ]);
         
         setStats(statsRes.data);
         setMonthlyData(monthlyRes.data);
         setCategoryData(categoryRes.data);
-        setTopProducts(topProductsRes.data); // <-- Mới
+        setTopProducts(topProductsRes.data); 
         
       } catch (error) {
         console.error("Lỗi tải dữ liệu dashboard:", error);
@@ -74,10 +90,10 @@ export function Dashboard() {
     };
     
     fetchDashboardData();
-  }, []);
+  }, [user]); // Chạy lại khi 'user' thay đổi
   // ---
 
-  // --- 4. Component Loading ---
+  // Component Loading
   if (isLoading) {
     return (
       <div className="flex h-[80vh] w-full items-center justify-center">
@@ -85,8 +101,24 @@ export function Dashboard() {
       </div>
     )
   }
+  
+  // --- 5. THÊM MỚI: Màn hình Từ chối Truy cập ---
+  if (!isAuthorized) {
+    return (
+       <div className="flex flex-col h-[80vh] w-full items-center justify-center p-6 text-center">
+          <AlertTriangle className="h-12 w-12 text-red-500" />
+          <h2 className="mt-4 text-2xl font-bold text-foreground">
+            Bạn không có quyền truy cập
+          </h2>
+          <p className="mt-2 text-muted-foreground">
+            Chức năng này chỉ dành cho cấp Quản lý (Manager) và Quản trị viên (Admin).
+          </p>
+      </div>
+    )
+  }
   // ---
 
+  // (Phần JSX còn lại giữ nguyên)
   return (
     <div className="p-6 space-y-6">
       <div>
@@ -102,7 +134,7 @@ export function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-                {formatCurrency(stats?.totalRevenue ?? 0)}
+              {formatCurrency(stats?.totalRevenue ?? 0)}
             </div>
             <p className="text-xs text-muted-foreground">Tính trên đơn đã hoàn thành</p>
           </CardContent>
@@ -113,7 +145,7 @@ export function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-                {stats?.totalCompletedOrders ?? 0}
+              {stats?.totalCompletedOrders ?? 0}
             </div>
              <p className="text-xs text-muted-foreground">Các đơn đã giao thành công</p>
           </CardContent>
@@ -124,7 +156,7 @@ export function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-                {stats?.totalCustomers ?? 0}
+              {stats?.totalCustomers ?? 0}
             </div>
             <p className="text-xs text-muted-foreground">Tổng số tài khoản khách</p>
           </CardContent>
@@ -135,7 +167,7 @@ export function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-                {stats?.totalProducts ?? 0}
+              {stats?.totalProducts ?? 0}
             </div>
             <p className="text-xs text-muted-foreground">Tổng số sản phẩm</p>
           </CardContent>

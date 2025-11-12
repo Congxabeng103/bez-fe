@@ -4,18 +4,20 @@ import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Mail, Phone, Edit2, Trash2, Plus, RotateCcw } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea"; // (Giữ lại, có thể file khác cần)
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { Plus, Edit2, Trash2, Search, RotateCcw, Mail, Phone } from "lucide-react";
 import { useAuthStore } from "@/lib/authStore";
 import { Pagination } from "@/components/store/pagination";
 import { toast } from "sonner";
-import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"; // Sửa: Import TabsList, TabsTrigger
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { manualFetchApi } from "@/lib/api"; // <-- 1. IMPORT HÀM FETCH CHUNG
 
 const ITEMS_PER_PAGE = 5;
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+// const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api"; // (Không cần)
 
-// --- Interfaces (Sửa: Thêm firstName/lastName) ---
+// --- Interfaces ---
 interface CustomerResponse {
   id: number;
   name: string; // Vẫn nhận Full Name
@@ -30,7 +32,6 @@ interface CustomerResponse {
   role: string;
 }
 
-// --- SỬA 1: Dùng firstName/lastName ---
 interface CustomerFormData {
   firstName: string; 
   lastName: string;
@@ -42,8 +43,14 @@ interface CustomerFormData {
 
 // --- Component ---
 export function CustomerManagement() {
-  const { token } = useAuthStore();
+  // --- SỬA 2: Lấy user và quyền ---
+  const { user } = useAuthStore();
+  const roles = user?.roles || [];
+  // (Chỉ Admin mới có quyền sửa/xóa/kích hoạt)
+  const isAdmin = roles.includes("ADMIN");
+  // --- KẾT THÚC SỬA 2 ---
   
+  // --- States ---
   const [customers, setCustomers] = useState<CustomerResponse[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
@@ -54,46 +61,48 @@ export function CustomerManagement() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   
-  // --- SỬA 2: State mặc định ---
   const [formData, setFormData] = useState<CustomerFormData>({
     firstName: "", lastName: "", email: "", password: "", phone: null, active: true
   });
   const [formError, setFormError] = useState<string | null>(null);
 
-  // --- API Fetching (Giữ nguyên) ---
+  // --- API Fetching (ĐÃ SỬA DÙNG manualFetchApi) ---
   const fetchCustomers = useCallback(async () => {
-    if (!token) return;
     setIsFetching(true);
-    const url = new URL(`${API_URL}/v1/users/customers`);
-    url.searchParams.append("page", (currentPage - 1).toString());
-    url.searchParams.append("size", ITEMS_PER_PAGE.toString());
-    url.searchParams.append("sort", "createdAt,desc");
-    url.searchParams.append("status", filterStatus);
-    if (searchTerm) url.searchParams.append("search", searchTerm);
+    
+    // 1. Tạo chuỗi query
+    const query = new URLSearchParams();
+    query.append("page", (currentPage - 1).toString());
+    query.append("size", ITEMS_PER_PAGE.toString());
+    query.append("sort", "createdAt,desc");
+    query.append("status", filterStatus);
+    if (searchTerm) query.append("search", searchTerm);
     
     try {
-      const response = await fetch(url.toString(), { headers: { "Authorization": `Bearer ${token}` } });
-      const result = await response.json();
+      // 2. Gọi manualFetchApi
+      const result = await manualFetchApi(`/v1/users/customers?${query.toString()}`);
+      
       if (result.status === 'SUCCESS' && result.data) {
         setCustomers(result.data.content);
         setTotalPages(result.data.totalPages);
       } else throw new Error(result.message || "Lỗi tải khách hàng");
-    } catch (err: any) { toast.error(`Lỗi: ${err.message}`); }
+    } catch (err: any) { 
+      // Lỗi 403 (Forbidden) sẽ được bắt ở đây nếu BE cấm
+      toast.error(`Lỗi: ${err.message}`); 
+    }
     finally { setIsFetching(false); }
-  }, [token, currentPage, searchTerm, filterStatus]);
+  }, [currentPage, searchTerm, filterStatus]); // (Đã xóa 'token')
 
   useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
 
   // --- Handlers ---
-  // --- SỬA 3: resetForm ---
   const resetForm = () => {
     setShowForm(false); setEditingId(null); setFormError(null);
     setFormData({ firstName: "", lastName: "", email: "", password: "", phone: null, active: true });
   }
 
-  // --- SỬA 4: handleSubmit (Gửi đi firstName/lastName) ---
+  // --- SỬA 4: handleSubmit (Dùng manualFetchApi + Thêm check quyền) ---
   const handleSubmit = async () => {
-    if (!token) return toast.error("Hết hạn đăng nhập.");
     setFormError(null);
 
     // Validate
@@ -108,26 +117,28 @@ export function CustomerManagement() {
     let requestBody: any = {};
 
     if (isEditing) {
-        // --- LOGIC CẬP NHẬT (PUT /v1/users/{id}) ---
-        url = `${API_URL}/v1/users/${editingId}`;
+        // --- SỬA: Check quyền Admin khi SỬA ---
+        if (!isAdmin) {
+          toast.error("Bạn không có quyền sửa thông tin khách hàng.");
+          return;
+        }
+        
+        url = `/v1/users/${editingId}`;
         method = "PUT";
-        // Gửi UserRequestDTO (không có 'role' và 'password')
         requestBody = {
             firstName: formData.firstName.trim(),
             lastName: formData.lastName.trim(),
             email: formData.email.trim(),
             phone: formData.phone ? formData.phone.trim() : null,
             active: formData.active,
-            // (Backend sẽ tự giữ 'position' là null nếu DTO không có)
         };
     } else {
-        // --- LOGIC TẠO MỚI (POST /v1/auth/register) ---
+        // (Tạo mới)
         if (!formData.password || formData.password.length < 6) {
             return setFormError("Mật khẩu phải có ít nhất 6 ký tự.");
         }
-        url = `${API_URL}/v1/auth/register`;
+        url = `/v1/auth/register`; // API này Public
         method = "POST";
-        // Gửi RegisterRequestDTO
         requestBody = {
             firstName: formData.firstName.trim(),
             lastName: formData.lastName.trim(),
@@ -137,41 +148,47 @@ export function CustomerManagement() {
     }
 
     try {
-      const response = await fetch(url, { method, headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
-      const result = await response.json();
+      // Dùng manualFetchApi
+      const result = await manualFetchApi(url, { 
+        method, 
+        body: JSON.stringify(requestBody) 
+      });
 
-      if (response.status === 409 || response.status === 400) { 
-        setFormError(result.message || (isEditing ? "Cập nhật thất bại" : "Tạo thất bại"));
-        toast.error(result.message || (isEditing ? "Cập nhật thất bại" : "Tạo thất bại"));
-        return;
+      if (result.status === 'SUCCESS') {
+         toast.success(isEditing ? "Cập nhật khách hàng thành công!" : "Thêm khách hàng thành công! (Cần kích hoạt email)");
+         resetForm();
+         fetchCustomers();
+      } else {
+         // Lỗi logic (BE trả về 200 nhưng status: 'ERROR')
+         throw new Error(result.message || (isEditing ? "Cập nhật thất bại" : "Tạo thất bại"));
       }
-       if (!response.ok) {
-        throw new Error(result.message || `Lỗi ${response.status}`);
-      }
-
-      // (API Register có thể trả về text, không phải JSON 'status')
-      // Chúng ta chỉ cần biết nó OK (2xx) là được
-      toast.success(isEditing ? "Cập nhật khách hàng thành công!" : "Thêm khách hàng thành công! (Cần kích hoạt email)");
-      resetForm();
-      fetchCustomers();
       
     } catch (err: any) {
-      toast.error(`Lỗi: ${err.message}`);
-      setFormError(err.message);
+      // Lỗi 409 (Trùng lặp) hoặc 403 (Không quyền)
+      if (err.message && (err.message.toLowerCase().includes("đã tồn tại") || err.message.toLowerCase().includes("duplicate"))) {
+          setFormError(err.message);
+          toast.error(err.message);
+      } else {
+          toast.error(`Lỗi: ${err.message}`);
+          setFormError(err.message);
+      }
     }
   };
 
-  // --- SỬA 5: handleEdit (Tách Full Name) ---
+  // Mở form Sửa
   const handleEdit = (customer: CustomerResponse) => {
-    // Tách fullName (Vd: "Đỗ Thành Công") thành lastName ("Đỗ Thành") và firstName ("Công")
+    if (!isAdmin) { // <-- SỬA 5: Check quyền
+      toast.error("Bạn không có quyền sửa.");
+      return;
+    }
+    
+    // (Logic tách tên của bạn đã đúng)
     const fullName = customer.name || "";
     const lastSpaceIndex = fullName.lastIndexOf(' ');
     let firstName = "";
     let lastName = "";
-
-    if (lastSpaceIndex === -1) {
-        firstName = fullName; // Nếu chỉ có 1 từ
-    } else {
+    if (lastSpaceIndex === -1) { firstName = fullName; } 
+    else {
         firstName = fullName.substring(lastSpaceIndex + 1);
         lastName = fullName.substring(0, lastSpaceIndex);
     }
@@ -189,41 +206,67 @@ export function CustomerManagement() {
   };
 
   // Xóa (Soft Delete)
-  const handleDelete = async (id: number) => { /* ... (Giữ nguyên) ... */ };
+  const handleDelete = async (id: number) => { 
+    if (!isAdmin) { // <-- SỬA 6: Check quyền
+      toast.error("Bạn không có quyền ngừng hoạt động khách hàng.");
+      return;
+    }
+    
+    if (!confirm("Ngừng hoạt động khách hàng này?")) return;
+    
+    try {
+      const result = await manualFetchApi(`/v1/users/${id}`, { method: "DELETE" });
+      if (result.status === 'SUCCESS') {
+        toast.success("Đã ngừng hoạt động khách hàng.");
+        fetchCustomers();
+      } else throw new Error(result.message || "Xóa thất bại");
+    } catch (err: any) { 
+      toast.error(`Lỗi: ${err.message}`); 
+    }
+  };
 
-  // --- SỬA 6: handleReactivate (Tách Full Name) ---
+  // Kích hoạt lại
   const handleReactivate = async (customer: CustomerResponse) => {
-      if (!token || !confirm(`Kích hoạt lại khách hàng "${customer.name}"?`)) return;
-      const url = `${API_URL}/v1/users/${customer.id}`;
+    if (!isAdmin) { // <-- SỬA 7: Check quyền
+      toast.error("Bạn không có quyền kích hoạt lại khách hàng.");
+      return;
+    }
+    
+    if (!confirm(`Kích hoạt lại khách hàng "${customer.name}"?`)) return;
+    const url = `/v1/users/${customer.id}`;
 
-      // Tách fullName
-      const fullName = customer.name || "";
-      const lastSpaceIndex = fullName.lastIndexOf(' ');
-      let firstName = "";
-      let lastName = "";
-      if (lastSpaceIndex === -1) { firstName = fullName; } 
-      else {
-          firstName = fullName.substring(lastSpaceIndex + 1);
-          lastName = fullName.substring(0, lastSpaceIndex);
-      }
+    // (Logic tách tên của bạn đã đúng)
+    const fullName = customer.name || "";
+    const lastSpaceIndex = fullName.lastIndexOf(' ');
+    let firstName = "";
+    let lastName = "";
+    if (lastSpaceIndex === -1) { firstName = fullName; } 
+    else {
+        firstName = fullName.substring(lastSpaceIndex + 1);
+        lastName = fullName.substring(0, lastSpaceIndex);
+    }
 
-      // Gửi UserRequestDTO
-      const requestBody = { 
-          firstName: firstName,
-          lastName: lastName,
-          email: customer.email, 
-          phone: customer.phone,
-          active: true // Set active = true
-          // (Không cần gửi position vì đây là Customer)
-      };
-      try {
-        const response = await fetch(url, { method: "PUT", headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
-        const result = await response.json();
-        if (result.status === 'SUCCESS') {
-          toast.success("Kích hoạt lại thành công!");
-          fetchCustomers();
-        } else throw new Error(result.message || "Kích hoạt thất bại");
-      } catch (err: any) { toast.error(`Lỗi: ${err.message}`); }
+    const requestBody = { 
+        firstName: firstName,
+        lastName: lastName,
+        email: customer.email, 
+        phone: customer.phone,
+        active: true // Set active = true
+    };
+    
+    try {
+      const result = await manualFetchApi(url, { 
+        method: "PUT", 
+        body: JSON.stringify(requestBody) 
+      });
+      
+      if (result.status === 'SUCCESS') {
+        toast.success("Kích hoạt lại thành công!");
+        fetchCustomers();
+      } else throw new Error(result.message || "Kích hoạt thất bại");
+    } catch (err: any) { 
+      toast.error(`Lỗi: ${err.message}`); 
+    }
   };
   
   // Xử lý đổi Tab
@@ -242,15 +285,20 @@ export function CustomerManagement() {
           <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Quản lý khách hàng</h1>
           <p className="text-sm text-muted-foreground mt-1">Quản lý thông tin khách hàng (Vai trò: USER)</p>
         </div>
-        <Button onClick={() => { resetForm(); setShowForm(true); setEditingId(null); }} className="gap-1.5 self-end sm:self-center" size="sm">
-          <Plus size={16} /> Thêm Khách Hàng
-        </Button>
+        {/* --- SỬA 8: Chỉ ADMIN mới được TẠO KHÁCH HÀNG (theo logic của bạn) --- */}
+        {/* (Mặc dù API là public, nhưng nghiệp vụ này nên là Admin) */}
+        {isAdmin && (
+          <Button onClick={() => { resetForm(); setShowForm(true); setEditingId(null); }} className="gap-1.5 self-end sm:self-center" size="sm">
+            <Plus size={16} /> Thêm Khách Hàng
+          </Button>
+        )}
+        {/* --- KẾT THÚC SỬA 8 --- */}
       </div>
 
       {formError && ( <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md border border-destructive/30 animate-shake">{formError}</div> )}
       
-      {/* --- SỬA 7: Form (Dùng 2 ô tên) --- */}
-      {showForm && (
+      {/* Ẩn Form nếu không phải Admin */}
+      {showForm && isAdmin && (
         <Card className="border-blue-500/50 shadow-md animate-fade-in">
           <CardHeader>
             <CardTitle className="text-lg font-semibold">{editingId ? "Chỉnh sửa khách hàng" : "Thêm khách hàng mới"}</CardTitle>
@@ -283,28 +331,25 @@ export function CustomerManagement() {
 
             {/* Trường Mật khẩu (chỉ khi tạo mới) */}
             {!editingId && (
-                <div>
-                    <Label htmlFor="passwordInput" className="text-xs text-muted-foreground">Mật khẩu * (Ít nhất 6 ký tự)</Label>
-                    <Input
-                        id="passwordInput"
-                        type="password"
-                        placeholder="Nhập mật khẩu"
-                        value={formData.password || ""}
-                        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                        className="mt-1"
-                    />
-                </div>
+               <div>
+                   <Label htmlFor="passwordInput" className="text-xs text-muted-foreground">Mật khẩu * (Ít nhất 6 ký tự)</Label>
+                   <Input
+                       id="passwordInput"
+                       type="password"
+                       placeholder="Nhập mật khẩu"
+                       value={formData.password || ""}
+                       onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                       className="mt-1"
+                   />
+               </div>
             )}
 
             {/* Checkbox Active (Chỉ enable khi Sửa) */}
            <div className="flex items-center gap-2">
              <Checkbox
                id="customerActiveForm"
-               // Sửa: Khi tạo mới (!editingId), ép checked = false
-               // (Vì API /register mặc định isActive=false, cần kích hoạt mail)
                checked={editingId ? formData.active : false} 
                onCheckedChange={(checked) => {
-                 // Chỉ cho phép thay đổi khi đang sửa
                  if (editingId) {
                    setFormData({ ...formData, active: Boolean(checked) });
                  }
@@ -358,7 +403,11 @@ export function CustomerManagement() {
                       <th className="text-right py-2.5 px-3 font-semibold text-foreground/80">Tổng chi (₫)</th>
                       <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Ngày tham gia</th>
                       <th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Trạng thái</th>
-                      <th className="text-center py-2.5 px-3 font-semibold text-foreground/80 w-[100px]">Hành động</th>
+                      {/* --- SỬA 9: Ẩn cột Hành động nếu không phải Admin --- */}
+                      {isAdmin && (
+                        <th className="text-center py-2.5 px-3 font-semibold text-foreground/80 w-[100px]">Hành động</th>
+                      )}
+                      {/* --- KẾT THÚC SỬA 9 --- */}
                     </tr>
                   </thead>
                   <tbody>
@@ -373,22 +422,26 @@ export function CustomerManagement() {
                         <td className="py-2 px-3 text-right">{customer.totalSpent.toLocaleString('vi-VN')}</td>
                         <td className="py-2 px-3 text-muted-foreground">{new Date(customer.joinDate).toLocaleDateString('vi-VN')}</td>
                          <td className="py-2 px-3 text-center">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${customer.active ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}`}>
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${customer.active ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"}`}>
                             {customer.active ? "Hoạt động" : "Ngừng HĐ"}
                           </span>
                         </td>
-                        <td className="py-2 px-3">
-                           <div className="flex gap-1.5 justify-center">
-                              <Button variant="outline" size="icon" className="w-7 h-7" title="Sửa" onClick={() => handleEdit(customer)}><Edit2 size={14} /></Button>
-                              {customer.active ? (
-                                <Button variant="outline" size="icon" className="w-7 h-7 text-destructive border-destructive hover:bg-destructive/10" title="Ngừng hoạt động" onClick={() => handleDelete(customer.id)}><Trash2 size={14} /></Button>
-                              ) : (
-                                <Button variant="outline" size="icon" className="w-7 h-7 text-green-600 border-green-600 hover:bg-green-100/50" title="Kích hoạt lại" onClick={() => handleReactivate(customer)}>
-                                    <RotateCcw size={14} /> 
-                                </Button>
-                              )}
-                           </div>
-                        </td>
+                        {/* --- SỬA 10: Ẩn các nút nếu không phải Admin --- */}
+                        {isAdmin && (
+                          <td className="py-2 px-3">
+                             <div className="flex gap-1.5 justify-center">
+                               <Button variant="outline" size="icon" className="w-7 h-7" title="Sửa" onClick={() => handleEdit(customer)}><Edit2 size={14} /></Button>
+                               {customer.active ? (
+                                 <Button variant="outline" size="icon" className="w-7 h-7 text-destructive border-destructive hover:bg-destructive/10" title="Ngừng hoạt động" onClick={() => handleDelete(customer.id)}><Trash2 size={14} /></Button>
+                               ) : (
+                                 <Button variant="outline" size="icon" className="w-7 h-7 text-green-600 border-green-600 hover:bg-green-100/50" title="Kích hoạt lại" onClick={() => handleReactivate(customer)}>
+                                     <RotateCcw size={14} /> 
+                                 </Button>
+                               )}
+                             </div>
+                          </td>
+                        )}
+                        {/* --- KẾT THÚC SỬA 10 --- */}
                       </tr>
                     ))}
                   </tbody>

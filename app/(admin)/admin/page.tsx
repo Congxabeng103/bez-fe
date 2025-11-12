@@ -1,4 +1,4 @@
-// File: app/admin/page.tsx (TẠO MỚI)
+// File: app/admin/page.tsx (SỬA LẠI)
 "use client"
 
 import { useState } from "react"
@@ -20,7 +20,40 @@ import { Settings, LogOut } from "lucide-react"
 
 export default function AdminDashboardPage() {
   const { user, logout } = useAuthStore()
-  const [currentPage, setCurrentPage] = useState("dashboard")
+
+  // --- SỬA LỖI UX CHO STAFF ---
+  // Hàm này chạy 1 lần duy nhất khi khởi tạo component
+  // Nó lấy state (đã được nạp từ localStorage) để quyết định trang mặc định
+  const getInitialPage = () => {
+    // Dùng getState() để lấy state đồng bộ từ store (đã được nạp)
+    const userRoles = useAuthStore.getState().user?.roles || [];
+
+    const isAdminOrManager =
+      userRoles.includes('ADMIN') ||
+      userRoles.includes('MANAGER') ||
+      userRoles.includes('ROLE_ADMIN') ||
+      userRoles.includes('ROLE_MANAGER');
+
+    // Nếu là Admin/Manager, trang mặc định là Dashboard
+    if (isAdminOrManager) {
+      return "dashboard";
+    }
+
+    // Nếu không phải Admin/Manager, nhưng là Staff
+    if (userRoles.includes('STAFF') || userRoles.includes('ROLE_STAFF')) {
+      // Trang mặc định của Staff là Orders (trang đầu tiên họ thấy)
+      return "orders";
+    }
+
+    // Dự phòng (nếu có lỗi, dù AdminLayout nên chặn)
+    return "dashboard";
+  };
+
+  // Truyền TÊN HÀM (không phải kết quả) vào useState
+  // React sẽ tự gọi hàm này 1 lần duy nhất
+  const [currentPage, setCurrentPage] = useState(getInitialPage);
+  // --- KẾT THÚC SỬA ---
+
 
   const renderPage = () => {
     switch (currentPage) {
@@ -37,22 +70,23 @@ export default function AdminDashboardPage() {
       case "employees": return <EmployeeManagement />;
       case "profile": return <Profile />;
       default:
-        return <Dashboard />;
+        // Sửa: default nên quay về trang an toàn (orders) thay vì dashboard
+        return <OrderManagement />; 
     }
   }
 
- // --- LAYOUT ADMIN (Sử dụng CSS của file gốc) ---
- return (
+  // --- LAYOUT ADMIN (Giữ nguyên) ---
+  return (
     <div className="flex h-screen bg-background">
       <Sidebar currentPage={currentPage} onPageChange={setCurrentPage} />
-      
+
       {/* 1. Thẻ <main> (Đã sửa lỗi, không có 'h-screen') */}
-      <main className="flex-1 overflow-auto flex flex-col"> 
-        
+      <main className="flex-1 overflow-auto flex flex-col">
+
         {/* 2. Header (CSS Gốc: p-4) */}
         <div className="flex justify-between items-center p-4 border-b bg-background">
           <div></div> {/* Div rỗng để căn phải */}
-          
+
           <div className="relative group">
             <button className="flex items-center gap-2 hover:bg-muted p-2 rounded-lg transition-colors">
               <img
@@ -62,7 +96,7 @@ export default function AdminDashboardPage() {
               />
               <span className="text-sm font-medium">{user?.name}</span>
             </button>
-            
+
             {/* Dropdown menu */}
             <div className="absolute right-0 mt-0 w-48 bg-background border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
               <button
@@ -82,7 +116,7 @@ export default function AdminDashboardPage() {
             </div>
           </div>
         </div>
-        
+
         {/* 3. Nội dung (CSS Gốc) */}
         <div className="flex-1 overflow-auto">{renderPage()}</div>
       </main>

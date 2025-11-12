@@ -5,10 +5,10 @@ import Link from "next/link";
 import { CheckCircle, XCircle, Loader2 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useCart } from "@/hooks/use-cart";
-import { useEffect, useState, Suspense, useCallback } from "react";
+import { useEffect, useState, Suspense, useRef } from "react"; // 1. Thêm useRef
 import { useAuthStore } from "@/lib/authStore";
 
-// --- Helper API Call (Đã làm sạch) ---
+// --- Helper API Call (Giữ nguyên) ---
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
 const manualFetchApi = async (url: string, options: RequestInit = {}) => {
   // Lấy token từ store
@@ -33,8 +33,6 @@ function ConfirmationContent() {
   const searchParams = useSearchParams();
   const orderId = searchParams.get("orderId");
   const urlStatusHint = searchParams.get("status"); // Gợi ý của VNPAY
-  
-  // --- 1. SỬA LỖI COD: Đọc tham số method ---
   const paymentMethod = searchParams.get("method"); // Lấy 'COD' từ URL
 
   const { fetchCart } = useCart();
@@ -43,38 +41,21 @@ function ConfirmationContent() {
   const [orderStatus, setOrderStatus] = useState<
     'POLLING' | 'PAID' | 'FAILED'
   >('POLLING');
-  const [retryCount, setRetryCount] = useState(0);
 
-  // --- Logic Polling (Giữ nguyên) ---
-  const pollOrderStatus = useCallback(async () => {
-    if (!orderId || !token) {
-      if (!orderId) setOrderStatus('FAILED');
-      return;
-    }
+  // --- SỬA LOGIC POLLING ---
+  
+  // 1. Xóa retryCount
+  // const [retryCount, setRetryCount] = useState(0);
 
-    try {
-      const response = await manualFetchApi(`/v1/orders/my-orders/${orderId}`);
-      const paymentStatus = response.data.paymentStatus;
+  // 2. Thêm Ref để lưu ID của timeout
+  const pollingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // 3. Thêm Ref để đảm bảo polling chỉ chạy 1 lần
+  const isPollingActive = useRef(false);
 
-      if (paymentStatus === 'PAID') {
-        setOrderStatus('PAID');
-        fetchCart();
-      } else if (paymentStatus === 'FAILED') {
-        setOrderStatus('FAILED');
-      } else if (paymentStatus === 'PENDING' && retryCount < 5) {
-        setRetryCount(prev => prev + 1);
-        setTimeout(pollOrderStatus, 3000); // Polling!
-      } else {
-        setOrderStatus('FAILED');
-      }
-    } catch (error) {
-      console.error("Lỗi khi polling trạng thái:", error);
-      setOrderStatus('FAILED');
-    }
-  }, [orderId, token, retryCount, fetchCart]);
-
-
-  // --- 2. SỬA LỖI COD: Cập nhật useEffect ---
+  // 4. Xóa useCallback(pollOrderStatus) cũ
+  
+  // 5. Viết lại hoàn toàn useEffect
   useEffect(() => {
     // Ưu tiên 1: VNPAY báo lỗi ngay lập tức
     if (urlStatusHint === 'failed') {
@@ -84,18 +65,76 @@ function ConfirmationContent() {
 
     // Ưu tiên 2: Đây là đơn COD, báo thành công ngay!
     if (paymentMethod === 'COD') {
-      setOrderStatus('PAID'); // 'PAID' là để hiển thị UI thành công
+      setOrderStatus('PAID');
       fetchCart(); // Cập nhật icon giỏ hàng
       return; // Dừng, KHÔNG POLLING
     }
-
-    // Ưu tiên 3: Mặc định là VNPAY, bắt đầu Polling
-    // (Chỉ poll khi có token)
-    if (token) {
-      pollOrderStatus();
+    
+    // Ưu tiên 3: Đơn VNPAY, bắt đầu Polling
+    
+    // Kiểm tra các điều kiện cần thiết
+    if (!orderId || !token) {
+      if (!orderId) setOrderStatus('FAILED'); // Lỗi URL, không có orderId
+      return;
     }
 
-  }, [pollOrderStatus, urlStatusHint, token, paymentMethod]); // <-- Thêm paymentMethod
+    // Đảm bảo polling chỉ chạy 1 lần duy nhất
+    if (isPollingActive.current) return;
+    isPollingActive.current = true;
+
+    // Đặt thời hạn polling (ví dụ: 2 phút)
+    // IPN của VNPay có thể mất 30-60 giây
+    const pollingDeadline = Date.now() + (2 * 60 * 1000); // 2 phút
+
+    const poll = async () => {
+      // 1. Kiểm tra xem còn thời gian không
+      if (Date.now() > pollingDeadline) {
+        setOrderStatus('FAILED'); // Hết giờ, báo thất bại
+        isPollingActive.current = false;
+        return;
+      }
+
+      // 2. Fetch trạng thái
+      try {
+        const response = await manualFetchApi(`/v1/orders/my-orders/${orderId}`);
+        const paymentStatus = response.data.paymentStatus;
+
+        if (paymentStatus === 'PAID') {
+          setOrderStatus('PAID');
+          fetchCart();
+          isPollingActive.current = false;
+          // Thành công, dừng polling
+
+        } else if (paymentStatus === 'FAILED') {
+          setOrderStatus('FAILED');
+          isPollingActive.current = false;
+          // Thất bại, dừng polling
+
+        } else {
+          // Vẫn là 'PENDING', tiếp tục poll
+          pollingTimeoutRef.current = setTimeout(poll, 3000); // Thử lại sau 3s
+        }
+      } catch (error) {
+        console.error("Lỗi khi polling trạng thái:", error);
+        setOrderStatus('FAILED'); // Lỗi, dừng polling
+        isPollingActive.current = false;
+      }
+    };
+
+    // Bắt đầu polling lần đầu tiên
+    poll();
+
+    // Hàm dọn dẹp (Cleanup):
+    // Rất quan trọng: Nếu người dùng rời khỏi trang, phải dừng polling
+    return () => {
+      isPollingActive.current = false; // Đánh dấu là đã dừng
+      if (pollingTimeoutRef.current) {
+        clearTimeout(pollingTimeoutRef.current);
+      }
+    };
+
+  }, [orderId, token, urlStatusHint, paymentMethod, fetchCart]); // Dependencies
+  // --- KẾT THÚC SỬA LOGIC POLLING ---
 
 
   // --- Logic Render (Giữ nguyên) ---

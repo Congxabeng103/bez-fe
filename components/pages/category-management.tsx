@@ -13,9 +13,10 @@ import { Pagination } from "@/components/store/pagination";
 import { toast } from "sonner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ImageUpload } from "@/components/store/image-upload";
+import { manualFetchApi } from "@/lib/api"; // <-- SỬA 1: Import hàm fetch
 
-const ITEMS_PER_PAGE = 10;
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+const ITEMS_PER_PAGE = 5;
+// const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api"; // (Không cần nữa)
 
 // --- Interfaces ---
 interface CategoryResponse { 
@@ -24,7 +25,7 @@ interface CategoryResponse {
   description: string;
   imageUrl: string; 
   active: boolean; 
-  productCount: number; // <-- THÊM DÒNG NÀY
+  productCount: number; 
 }
 interface CategoryFormData { 
   name: string; 
@@ -35,7 +36,14 @@ interface CategoryFormData {
 
 // --- Component ---
 export function CategoryManagement() {
-  const { token } = useAuthStore();
+  // --- SỬA 2: Lấy user và quyền ---
+  const { user } = useAuthStore();
+  const roles = user?.roles || [];
+  // (Chỉ Manager và Admin mới có quyền sửa)
+  const canEdit = roles.includes("ADMIN") || roles.includes("MANAGER");
+  // (Chỉ Admin mới có quyền xóa vĩnh viễn)
+  const isAdmin = roles.includes("ADMIN");
+  // --- KẾT THÚC SỬA 2 ---
 
   // --- States ---
   const [categories, setCategories] = useState<CategoryResponse[]>([]);
@@ -51,26 +59,31 @@ export function CategoryManagement() {
   const [formData, setFormData] = useState<CategoryFormData>({ name: "", description: "", imageUrl: "", active: true });
   const [errors, setErrors] = useState<Partial<Record<keyof CategoryFormData, string>>>({});
 
-  // --- API Fetching ---
+  // --- API Fetching (ĐÃ SỬA LỖI API_URL) ---
   const fetchCategories = useCallback(async () => {
-    if (!token) return;
     setIsFetching(true);
-    const url = new URL(`${API_URL}/v1/categories`);
-    url.searchParams.append("page", (categoryPage - 1).toString());
-    url.searchParams.append("size", ITEMS_PER_PAGE.toString());
-    url.searchParams.append("sort", "name,asc");
-    url.searchParams.append("status", filterStatus);
-    if (categorySearchTerm) url.searchParams.append("search", categorySearchTerm);
+    
+    // 1. Tạo chuỗi query
+    const query = new URLSearchParams();
+    query.append("page", (categoryPage - 1).toString());
+    query.append("size", ITEMS_PER_PAGE.toString());
+    query.append("sort", "name,asc");
+    query.append("status", filterStatus);
+    if (categorySearchTerm) query.append("search", categorySearchTerm);
+    
     try {
-      const response = await fetch(url.toString(), { headers: { "Authorization": `Bearer ${token}` } });
-      const result = await response.json();
+      // 2. Gọi manualFetchApi với chỉ đường dẫn
+      const result = await manualFetchApi(`/v1/categories?${query.toString()}`);
+      
       if (result.status === 'SUCCESS' && result.data) {
         setCategories(result.data.content);
         setTotalCategoryPages(result.data.totalPages);
       } else throw new Error(result.message || "Lỗi tải danh mục");
-    } catch (err: any) { toast.error(`Lỗi tải danh mục: ${err.message}`); }
+    } catch (err: any) { 
+      toast.error(`Lỗi tải danh mục: ${err.message}`); 
+    }
     finally { setIsFetching(false); }
-  }, [token, categoryPage, categorySearchTerm, filterStatus]);
+  }, [categoryPage, categorySearchTerm, filterStatus]); // (Đã xóa 'token' khỏi dependency)
 
   // --- useEffects ---
   useEffect(() => { fetchCategories(); }, [fetchCategories]);
@@ -84,8 +97,12 @@ export function CategoryManagement() {
 
   // Submit Form (Tạo/Sửa)
   const handleSubmit = async () => {
-    // ... (Logic này giữ nguyên)
-    if (!token) return toast.error("Vui lòng đăng nhập lại.");
+    if (!canEdit) { // <-- SỬA 4: Kiểm tra quyền
+      toast.error("Bạn không có quyền thực hiện hành động này.");
+      return;
+    }
+    
+    // ... (Logic validate giữ nguyên)
     const newErrors: Partial<Record<keyof CategoryFormData, string>> = {};
     const name = formData.name.trim();
     if (!name) { newErrors.name = "Tên danh mục không được để trống."; } 
@@ -95,32 +112,43 @@ export function CategoryManagement() {
       toast.error("Vui lòng kiểm tra lại thông tin.");
       return;
     }
+    
     const isEditing = !!editingId;
-    const url = isEditing ? `${API_URL}/v1/categories/${editingId}` : `${API_URL}/v1/categories`;
+    const url = isEditing ? `/v1/categories/${editingId}` : `/v1/categories`;
     const method = isEditing ? "PUT" : "POST";
     const requestBody = { ...formData, name: name, imageUrl: formData.imageUrl || null }; 
+    
     try {
-      const response = await fetch(url, { method, headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
-      const result = await response.json();
+      // --- SỬA 5: Dùng hàm fetch chung ---
+      const result = await manualFetchApi(url, { 
+        method, 
+        body: JSON.stringify(requestBody) 
+      });
+      // --- KẾT THÚC SỬA 5 ---
+      
       if (result.status === 'SUCCESS') {
         toast.success(isEditing ? "Cập nhật danh mục thành công!" : "Thêm danh mục thành công!");
         resetForm(); 
         fetchCategories(); 
       } else {
-        if (response.status === 409) { 
-          setErrors({ name: result.message || "Tên danh mục này đã tồn tại." });
-          toast.error(result.message || "Tên danh mục này đã tồn tại.");
-        } else {
-          throw new Error(result.message || (isEditing ? "Cập nhật thất bại" : "Thêm thất bại"));
-        }
+         if (result.message && (result.message.toLowerCase().includes("đã tồn tại") || result.message.toLowerCase().includes("duplicate"))) { 
+           setErrors({ name: result.message });
+           toast.error(result.message);
+         } else {
+           throw new Error(result.message || (isEditing ? "Cập nhật thất bại" : "Thêm thất bại"));
+         }
       }
     } catch (err: any) { 
       toast.error(`Lỗi: ${err.message}`); 
     }
   };
 
-  // Mở form Sửa (Giữ nguyên)
+  // Mở form Sửa
   const handleEdit = (category: CategoryResponse) => {
+    if (!canEdit) { // <-- SỬA 6: Kiểm tra quyền
+      toast.error("Bạn không có quyền sửa.");
+      return;
+    }
     setFormData({ 
       name: category.name, 
       description: category.description || "", 
@@ -132,58 +160,63 @@ export function CategoryManagement() {
     setErrors({});
   };
   
-  // --- SỬA HÀM NÀY (Soft Delete) ---
+  // Ngừng hoạt động (Soft Delete)
   const handleDelete = async (id: number) => {
-    // Thêm cảnh báo về việc ẩn hàng loạt
-    if (!token || !confirm("Ngừng hoạt động danh mục này? LƯU Ý: Tất cả sản phẩm đang hoạt động thuộc danh mục này cũng sẽ bị ngừng hoạt động.")) return;
+    if (!canEdit) { // <-- SỬA 7: Kiểm tra quyền
+      toast.error("Bạn không có quyền ngừng hoạt động.");
+      return;
+    }
+    
+    if (!confirm("Ngừng hoạt động danh mục này? LƯU Ý: Tất cả sản phẩm đang hoạt động thuộc danh mục này cũng sẽ bị ngừng hoạt động.")) return;
+    
     try {
-      const response = await fetch(`${API_URL}/v1/categories/${id}`, { method: "DELETE", headers: { "Authorization": `Bearer ${token}` } });
-      const result = await response.json();
+      // --- SỬA 8: Dùng hàm fetch chung ---
+      const result = await manualFetchApi(`/v1/categories/${id}`, { method: "DELETE" });
+      // --- KẾT THÚC SỬA 8 ---
+      
       if (result.status === 'SUCCESS') {
-        toast.success("Đã ngừng hoạt động danh mục và sản phẩm liên quan."); // Sửa text
+        toast.success("Đã ngừng hoạt động danh mục và sản phẩm liên quan."); 
         fetchCategories(); 
       } else throw new Error(result.message || "Xóa thất bại");
     } catch (err: any) { toast.error(`Lỗi: ${err.message}`); }
   };
 
-  // --- THÊM HÀM MỚI (Permanent Delete) ---
+  // Xóa vĩnh viễn (Permanent Delete)
   const handlePermanentDelete = async (id: number) => {
-    if (!token || !confirm("BẠN CÓ CHẮC CHẮN MUỐN XÓA VĨNH VIỄN? Hành động này không thể hoàn tác.")) return;
+    if (!isAdmin) { // <-- SỬA 9: Chỉ Admin
+      toast.error("Chỉ Quản trị viên (Admin) mới có quyền xóa vĩnh viễn.");
+      return;
+    }
+    
+    if (!confirm("BẠN CÓ CHẮC CHẮN MUỐN XÓA VĨNH VIỄN? Hành động này không thể hoàn tác.")) return;
     
     try {
-      const response = await fetch(`${API_URL}/v1/categories/${id}/permanent`, { // <-- Gọi API mới
-        method: "DELETE", 
-        headers: { "Authorization": `Bearer ${token}` } 
+      // --- SỬA 10: Dùng hàm fetch chung ---
+      const result = await manualFetchApi(`/v1/categories/${id}/permanent`, { 
+        method: "DELETE" 
       });
-
-      if (!response.ok) {
-         // Đọc lỗi từ server (ví dụ lỗi 409 "Không thể xóa...")
-         let errorMsg = `Lỗi HTTP: ${response.status}`;
-         try {
-           const errData = await response.json();
-           errorMsg = errData.message || errorMsg;
-         } catch (e) {
-           // không phải json
-         }
-         throw new Error(errorMsg);
-      }
+      // --- KẾT THÚC SỬA 10 ---
       
-      const result = await response.json();
       if (result.status === 'SUCCESS') {
-         toast.success("Đã xóa vĩnh viễn danh mục.");
-         fetchCategories(); // Tải lại
+          toast.success("Đã xóa vĩnh viễn danh mục.");
+          fetchCategories(); // Tải lại
       } else {
-         throw new Error(result.message || "Xóa vĩnh viễn thất bại");
+          throw new Error(result.message || "Xóa vĩnh viễn thất bại");
       }
     } catch (err: any) { 
       toast.error(`Lỗi: ${err.message}`); 
     }
   };
   
-  // Kích hoạt lại (Giữ nguyên)
+  // Kích hoạt lại
   const handleReactivate = async (category: CategoryResponse) => {
-    if (!token || !confirm(`Kích hoạt lại danh mục "${category.name}"?`)) return;
-    const url = `${API_URL}/v1/categories/${category.id}`;
+    if (!canEdit) { // <-- SỬA 11: Kiểm tra quyền
+      toast.error("Bạn không có quyền kích hoạt lại.");
+      return;
+    }
+
+    if (!confirm(`Kích hoạt lại danh mục "${category.name}"?`)) return;
+    const url = `/v1/categories/${category.id}`;
     
     const requestBody = { 
         name: category.name, 
@@ -192,12 +225,13 @@ export function CategoryManagement() {
         active: true 
     };
     try {
-      const response = await fetch(url, { 
+      // --- SỬA 12: Dùng hàm fetch chung ---
+      const result = await manualFetchApi(url, { 
         method: "PUT", 
-        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" }, 
         body: JSON.stringify(requestBody) 
       });
-      const result = await response.json();
+      // --- KẾT THÚC SỬA 12 ---
+      
       if (result.status === 'SUCCESS') {
         toast.success("Kích hoạt lại danh mục thành công!");
         fetchCategories(); 
@@ -216,17 +250,22 @@ export function CategoryManagement() {
   // --- JSX ---
   return (
     <div className="p-4 sm:p-6 space-y-6">
-      {/* ... (Phần tiêu đề và nút Thêm - Giữ nguyên) ... */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Quản lý Danh mục</h1>
           <p className="text-sm text-muted-foreground mt-1">Tạo và quản lý các danh mục sản phẩm</p>
         </div>
-        <Button onClick={() => { resetForm(); setShowForm(true); }} className="gap-1.5 self-start sm:self-center" size="sm"> <Plus size={16} /> Thêm Danh mục </Button>
+        {/* --- SỬA 13: Ẩn nút "Thêm" nếu là STAFF --- */}
+        {canEdit && (
+          <Button onClick={() => { resetForm(); setShowForm(true); }} className="gap-1.5 self-start sm:self-center" size="sm"> 
+            <Plus size={16} /> Thêm Danh mục 
+          </Button>
+        )}
+        {/* --- KẾT THÚC SỬA 13 --- */}
       </div>
 
-      {/* --- Form Thêm/Sửa (Giữ nguyên) --- */}
-      {showForm && (
+      {/* Ẩn Form Thêm/Sửa nếu là STAFF */}
+      {showForm && canEdit && ( 
         <Card className="border-blue-500/50 shadow-md animate-fade-in">
           <CardHeader className="pb-4 border-b">
             <CardTitle className="text-lg font-semibold">{editingId ? "Chỉnh sửa Danh mục" : "Thêm Danh mục mới"}</CardTitle>
@@ -265,7 +304,6 @@ export function CategoryManagement() {
 
       {/* --- Bảng Danh sách --- */}
       <Card className="shadow-sm">
-        {/* ... (Phần CardHeader, Tabs, Search - Giữ nguyên) ... */}
         <CardHeader>
           <CardTitle className="text-xl font-semibold">Danh sách Danh mục</CardTitle>
           <Tabs value={filterStatus} onValueChange={handleTabChange} className="mt-4">
@@ -285,18 +323,22 @@ export function CategoryManagement() {
             categories.length === 0 ? <div className="text-center py-6 text-muted-foreground">{categorySearchTerm ? "Không tìm thấy." : `Không có danh mục nào (${filterStatus.toLowerCase()}).`}</div> :
             (
               <>
+                {/* Sửa lỗi tràn table: bọc trong 'overflow-auto' */}
                 <div className="overflow-auto max-h-[500px] rounded-lg border">
                   <table className="w-full text-sm">
+                    {/* Sửa lỗi header: thêm 'sticky top-0' */}
                     <thead className="bg-muted sticky top-0 z-10">
                       <tr className="border-b">
                         <th className="text-left py-2.5 px-3 font-semibold text-foreground/80 w-[60px]">Ảnh</th> 
                         <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Tên Danh mục</th>
-                        {/* --- THÊM CỘT "Số SP" --- */}
                         <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Số SP</th>
                         <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Mô tả</th>
                         <th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Trạng thái</th>
-                        {/* Tăng chiều rộng cột Hành động */}
-                        <th className="text-center py-2.5 px-3 font-semibold text-foreground/80 w-[120px]">Hành động</th>
+                        {/* --- SỬA 14: Ẩn cột Hành động nếu là STAFF --- */}
+                        {canEdit && (
+                          <th className="text-center py-2.5 px-3 font-semibold text-foreground/80 w-[120px]">Hành động</th>
+                        )}
+                        {/* --- KẾT THÚC SỬA 14 --- */}
                       </tr>
                     </thead>
                     <tbody>
@@ -309,15 +351,12 @@ export function CategoryManagement() {
                               alt={cat.name} 
                               className="w-10 h-10 object-contain rounded border"
                               onError={(e) => {
-                                  (e.target as HTMLImageElement).src = "/placeholder.svg";
+                                (e.target as HTMLImageElement).src = "/placeholder.svg";
                               }}
                             />
                           </td>
                           <td className="py-2 px-3 font-medium text-foreground">{cat.name}</td>
-                          
-                          {/* --- THÊM Ô "Số SP" --- */}
                           <td className="py-2 px-3 text-muted-foreground text-sm">{cat.productCount}</td>
-                          
                           <td className="py-2 px-3 text-muted-foreground text-xs truncate max-w-xs">{cat.description || "-"}</td>
                           <td className="py-2 px-3 text-center">
                             <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${cat.active ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"}`}>
@@ -325,37 +364,40 @@ export function CategoryManagement() {
                             </span>
                           </td>
                           
-                          {/* --- SỬA LOGIC NÚT --- */}
-                          <td className="py-2 px-3">
-                            <div className="flex gap-1.5 justify-center">
-                              {/* Nút Sửa: Luôn hiển thị */}
-                              <Button variant="outline" size="icon" className="w-7 h-7" title="Sửa" onClick={() => handleEdit(cat)}><Edit2 size={14} /></Button>
-                              
-                              {cat.active ? (
-                                // Nút Ngừng HĐ (Soft Delete)
-                                <Button variant="outline" size="icon" className="w-7 h-7 text-destructive border-destructive hover:bg-destructive/10" title="Ngừng hoạt động" onClick={() => handleDelete(cat.id)}><Trash2 size={14} /></Button>
-                              ) : (
-                                // Nút Kích hoạt lại
-                                <Button variant="outline" size="icon" className="w-7 h-7 text-green-600 border-green-600 hover:bg-green-100/50" title="Kích hoạt lại" onClick={() => handleReactivate(cat)}>
-                                  <RotateCcw size={14} /> 
-                                </Button>
-                              )}
+                          {/* --- SỬA 15: Ẩn các nút nếu là STAFF --- */}
+                          {canEdit && (
+                            <td className="py-2 px-3">
+                              <div className="flex gap-1.5 justify-center">
+                                {/* Nút Sửa: Luôn hiển thị */}
+                                <Button variant="outline" size="icon" className="w-7 h-7" title="Sửa" onClick={() => handleEdit(cat)}><Edit2 size={14} /></Button>
+                                
+                                {cat.active ? (
+                                  // Nút Ngừng HĐ (Soft Delete)
+                                  <Button variant="outline" size="icon" className="w-7 h-7 text-destructive border-destructive hover:bg-destructive/10" title="Ngừng hoạt động" onClick={() => handleDelete(cat.id)}><Trash2 size={14} /></Button>
+                                ) : (
+                                  // Nút Kích hoạt lại
+                                  <Button variant="outline" size="icon" className="w-7 h-7 text-green-600 border-green-600 hover:bg-green-100/50" title="Kích hoạt lại" onClick={() => handleReactivate(cat)}>
+                                    <RotateCcw size={14} /> 
+                                  </Button>
+                                )}
 
-                              {/* Nút Xóa vĩnh viễn (Hard Delete) */}
-                              {/* Chỉ hiển thị khi: ĐANG NGỪNG HĐ VÀ KHÔNG CÓ SẢN PHẨM */}
-                              {!cat.active && cat.productCount === 0 && (
-                                <Button 
-                                  variant="destructive" 
-                                  size="icon" 
-                                  className="w-7 h-7" 
-                                  title="Xóa vĩnh viễn" 
-                                  onClick={() => handlePermanentDelete(cat.id)}
-                                >
-                                  <Trash2 size={14} />
-                                </Button>
-                              )}
-                            </div>
-                          </td>
+                                {/* Nút Xóa vĩnh viễn (Hard Delete) */}
+                                {/* Chỉ hiển thị khi: ĐANG NGỪNG HĐ, KHÔNG CÓ SẢN PHẨM VÀ LÀ ADMIN */}
+                                {!cat.active && cat.productCount === 0 && isAdmin && ( 
+                                  <Button 
+                                    variant="destructive" 
+                                    size="icon" 
+                                    className="w-7 h-7" 
+                                    title="Xóa vĩnh viễn" 
+                                    onClick={() => handlePermanentDelete(cat.id)}
+                                  >
+                                    <Trash2 size={14} />
+                                  </Button>
+                                )}
+                              </div>
+                            </td>
+                          )}
+                          {/* --- KẾT THÚC SỬA 15 --- */}
                         </tr>
                       ))}
                     </tbody>

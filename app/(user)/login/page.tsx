@@ -34,7 +34,7 @@ export default function Login() {
 
       const redirectUrl = searchParams.get('redirect') // Lấy URL (vd: /admin)
 
-      if (user && (user.roles.includes('ADMIN') || user.roles.includes('STAFF'))) {
+      if (user && (user.roles.includes('ADMIN') || user.roles.includes('STAFF') || user.roles.includes('MANAGER'))) {
         // 2a. Nếu là Admin/Staff VÀ bị đá từ /admin ra:
         if (redirectUrl) {
             router.push(redirectUrl); // Tự động quay lại /admin
