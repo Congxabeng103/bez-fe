@@ -1,11 +1,14 @@
-import { Suspense } from "react"
-import LoginForm from "./LoginForm"
+// 1. BẮT BUỘC: Dòng này ép Next.js không được build tĩnh trang này
+export const dynamic = "force-dynamic";
 
-// Đây là Server Component (Không có 'use client')
+import { Suspense } from "react";
+import LoginForm from "./LoginForm";
+
+// 2. Đây là Server Component (Không có 'use client')
 export default function LoginPage() {
   return (
-    // Suspense ở đây sẽ chặn đứng mọi lỗi build liên quan đến useSearchParams
-    <Suspense fallback={<div className="flex h-screen items-center justify-center">Đang tải trang đăng nhập...</div>}>
+    // 3. Vẫn giữ Suspense để an toàn tuyệt đối
+    <Suspense fallback={<div className="flex h-screen items-center justify-center">Đang tải trang...</div>}>
       <LoginForm />
     </Suspense>
   )
