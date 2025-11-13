@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, Suspense } from "react" // 1. Thêm import Suspense
-import { useRouter, useSearchParams } from "next/navigation"
+import { useState } from "react"
+import { useRouter } from "next/navigation" // BỎ import useSearchParams
 import { useAuthStore } from "@/lib/authStore"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -9,19 +9,18 @@ import { Input } from "@/components/ui/input"
 import { ArrowRight, Loader2, ShieldCheck, Store } from "lucide-react"
 import { toast } from "sonner"
 import Link from "next/link"
-import { Label } from "@/components/ui/label"
+import { Label } from "@/components/ui/label" 
 
-// 2. Đổi tên component chính cũ thành LoginForm (hoặc tên khác tùy ý) và BỎ export default
-function LoginForm() {
+export default function Login() {
   const { login } = useAuthStore()
   const router = useRouter()
-  const searchParams = useSearchParams() // useSearchParams nằm trong này là an toàn
+  // Đã xóa dòng const searchParams = useSearchParams() để tránh lỗi build
 
   const [email, setEmail] = useState("admin@example.com")
   const [password, setPassword] = useState("admin123")
   const [message, setMessage] = useState("")
   const [loading, setLoading] = useState(false)
-
+  
   const [loginStep, setLoginStep] = useState<'form' | 'choice'>('form')
 
   const handleLogin = async () => {
@@ -33,17 +32,22 @@ function LoginForm() {
       const user = useAuthStore.getState().user
       toast.success(`Chào mừng trở lại, ${user?.name}!`)
 
-      const redirectUrl = searchParams.get('redirect')
+      // --- SỬA ĐỔI QUAN TRỌNG ---
+      // Thay vì dùng hook, ta lấy params trực tiếp từ window khi bấm nút
+      // Cách này bypass hoàn toàn lỗi build của Next.js
+      const params = new URLSearchParams(window.location.search)
+      const redirectUrl = params.get('redirect') 
+      // ---------------------------
 
       if (user && (user.roles.includes('ADMIN') || user.roles.includes('STAFF') || user.roles.includes('MANAGER'))) {
         if (redirectUrl) {
-            router.push(redirectUrl);
+            router.push(redirectUrl); 
             return;
         }
         setLoginStep('choice')
         setLoading(false)
       } else {
-        router.push('/')
+        router.push('/') 
       }
 
     } catch (error: any) {
@@ -55,6 +59,7 @@ function LoginForm() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center p-4">
+      
       {/* Bước 1: Hiển thị Form Đăng nhập */}
       {loginStep === 'form' && (
         <Card className="w-full max-w-md shadow-lg animate-fade-in">
@@ -130,20 +135,7 @@ function LoginForm() {
           </CardContent>
         </Card>
       )}
-    </div>
-  )
-}
 
-// 3. Tạo Component Export Default bọc LoginForm trong Suspense
-export default function Login() {
-  return (
-    // Fallback là giao diện hiển thị tạm thời trong lúc Next.js load URL params
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="animate-spin h-8 w-8 text-primary" />
-      </div>
-    }>
-      <LoginForm />
-    </Suspense>
+    </div>
   )
 }
