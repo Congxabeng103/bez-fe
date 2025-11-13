@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, Suspense } from "react"
-import { useRouter, useSearchParams } from "next/navigation" 
+import { useRouter, useSearchParams } from "next/navigation"
 import { useAuthStore } from "@/lib/authStore"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -9,20 +9,22 @@ import { Input } from "@/components/ui/input"
 import { ArrowRight, Loader2, ShieldCheck, Store } from "lucide-react"
 import { toast } from "sonner"
 import Link from "next/link"
-import { Label } from "@/components/ui/label" 
+import { Label } from "@/components/ui/label"
 
-// 1. Tách logic đăng nhập ra một component con (không export default)
-function LoginForm() {
+// --- PHẦN 1: Tách logic form ra một component con ---
+function LoginFormContent() {
   const { login } = useAuthStore()
   const router = useRouter()
-  const searchParams = useSearchParams() // Hook này cần Suspense
+  
+  // useSearchParams nằm ở đây, nên component này BẮT BUỘC phải được bọc trong Suspense
+  const searchParams = useSearchParams() 
   
   const [email, setEmail] = useState("admin@example.com")
   const [password, setPassword] = useState("admin123")
   const [message, setMessage] = useState("")
   const [loading, setLoading] = useState(false)
   
-  const [loginStep, setLoginStep] = useState<'form' | 'choice'>('form')
+  const [loginStep, setLoginStep] = useState('form')
 
   const handleLogin = async () => {
     setLoading(true)
@@ -47,13 +49,11 @@ function LoginForm() {
       }
 
     } catch (error) {
-      // 2. Sửa lỗi TypeScript: 'error' is of type 'unknown'
+      // Xử lý lỗi an toàn cho TypeScript
       let errorMessage = "Email hoặc mật khẩu không chính xác";
-      
       if (error instanceof Error) {
         errorMessage = error.message;
       }
-
       setMessage(errorMessage)
       toast.error(errorMessage)
       setLoading(false)
@@ -61,8 +61,7 @@ function LoginForm() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center p-4">
-      
+    <>
       {loginStep === 'form' && (
         <Card className="w-full max-w-md shadow-lg animate-fade-in">
           <CardHeader className="space-y-2 text-center">
@@ -113,7 +112,6 @@ function LoginForm() {
                   Quay về trang chủ
               </Link>
             </div>
-
           </CardContent>
         </Card>
       )}
@@ -136,17 +134,23 @@ function LoginForm() {
           </CardContent>
         </Card>
       )}
-
-    </div>
+    </>
   )
 }
 
-// 3. Component chính export ra ngoài, bọc Suspense
+// --- PHẦN 2: Component cha Export Default ---
+// Component này bọc LoginFormContent trong Suspense để Next.js build thành công
 export default function Login() {
   return (
-    // Fallback UI sẽ hiện ra trong tích tắc khi nextjs xử lý searchParams
-    <Suspense fallback={<div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin" /></div>}>
-      <LoginForm />
-    </Suspense>
+    <div className="min-h-screen bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center p-4">
+      <Suspense fallback={
+        <div className="flex flex-col items-center justify-center p-4 bg-white rounded-lg shadow">
+            <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
+            <p className="text-sm text-muted-foreground">Đang tải trang đăng nhập...</p>
+        </div>
+      }>
+        <LoginFormContent />
+      </Suspense>
+    </div>
   )
 }
