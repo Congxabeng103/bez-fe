@@ -1,7 +1,8 @@
 "use client"
 
+// --- TẤT CẢ IMPORT GỐC CỦA BẠN ---
 import { useState } from "react"
-import { useRouter, useSearchParams } from "next/navigation" 
+import { useRouter, useSearchParams } from "next/navigation"
 import { useAuthStore } from "@/lib/authStore"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -9,18 +10,24 @@ import { Input } from "@/components/ui/input"
 import { ArrowRight, Loader2, ShieldCheck, Store } from "lucide-react"
 import { toast } from "sonner"
 import Link from "next/link"
-import { Label } from "@/components/ui/label" 
+import { Label } from "@/components/ui/label"
 
-export default function Login() {
+// --- 1. IMPORT THÊM SUSPENSE (BẮT BUỘC) ---
+import { Suspense } from "react"
+
+// --- 2. ĐÂY LÀ COMPONENT LOGIN GỐC CỦA BẠN (ĐỔI TÊN & BỎ EXPORT DEFAULT) ---
+// (Component này chứa logic chính và hook useSearchParams)
+function LoginContent() {
   const { login } = useAuthStore()
   const router = useRouter()
-  const searchParams = useSearchParams() 
-  
+  // Hook useSearchParams giờ đã an toàn khi nằm bên trong Suspense
+  const searchParams = useSearchParams()
+
   const [email, setEmail] = useState("admin@example.com")
   const [password, setPassword] = useState("admin123")
   const [message, setMessage] = useState("")
   const [loading, setLoading] = useState(false)
-  
+
   const [loginStep, setLoginStep] = useState<'form' | 'choice'>('form')
 
   const handleLogin = async () => {
@@ -37,8 +44,8 @@ export default function Login() {
       if (user && (user.roles.includes('ADMIN') || user.roles.includes('STAFF') || user.roles.includes('MANAGER'))) {
         // 2a. Nếu là Admin/Staff VÀ bị đá từ /admin ra:
         if (redirectUrl) {
-            router.push(redirectUrl); // Tự động quay lại /admin
-            return;
+          router.push(redirectUrl); // Tự động quay lại /admin
+          return;
         }
         // 2b. Nếu là Admin/Staff (tự đăng nhập): Hiển thị lựa chọn
         setLoginStep('choice')
@@ -55,9 +62,10 @@ export default function Login() {
     }
   }
 
+  // --- PHẦN JSX GỐC CỦA BẠN (GIỮ NGUYÊN) ---
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center p-4">
-      
+
       {/* Bước 1: Hiển thị Form Đăng nhập */}
       {loginStep === 'form' && (
         <Card className="w-full max-w-md shadow-lg animate-fade-in">
@@ -98,19 +106,17 @@ export default function Login() {
               {loading ? "Đang đăng nhập..." : "Đăng nhập"}
             </Button>
 
-            {/* --- SỬA LỖI 'legacyBehavior' Ở ĐÂY --- */}
             <div className="space-y-2 text-center text-sm">
               <Link href="/forgot-password" className="text-primary hover:underline block w-full">
-                  Quên mật khẩu?
+                Quên mật khẩu?
               </Link>
               <Link href="/register" className="text-primary hover:underline block w-full">
-                  Chưa có tài khoản? Đăng ký ngay
+                Chưa có tài khoản? Đăng ký ngay
               </Link>
-               <Link href="/" className="text-muted-foreground hover:underline block w-full pt-2">
-                  Quay về trang chủ
+              <Link href="/" className="text-muted-foreground hover:underline block w-full pt-2">
+                Quay về trang chủ
               </Link>
             </div>
-            {/* --- KẾT THÚC SỬA --- */}
 
           </CardContent>
         </Card>
@@ -137,5 +143,16 @@ export default function Login() {
       )}
 
     </div>
+  )
+}
+
+// --- 3. TẠO COMPONENT BỌC BÊN NGOÀI (EXPORT DEFAULT) ---
+// (Đây là component mà Next.js sẽ render)
+export default function LoginPage() {
+  return (
+    // Bọc component chính trong Suspense để fix lỗi build
+    <Suspense fallback={<div>Đang tải trang...</div>}>
+      <LoginContent />
+    </Suspense>
   )
 }
