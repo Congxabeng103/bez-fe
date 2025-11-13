@@ -1,9 +1,6 @@
 "use client"
 
-// 1. THÊM DÒNG NÀY ĐỂ SỬA LỖI TRIỆT ĐỂ
-// Nó báo cho Next.js bỏ qua việc tạo tĩnh trang này lúc build
-export const dynamic = "force-dynamic";
-
+// 1. Import 'Suspense' từ React
 import { useState, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation" 
 import { useAuthStore } from "@/lib/authStore"
@@ -15,16 +12,20 @@ import { toast } from "sonner"
 import Link from "next/link"
 import { Label } from "@/components/ui/label" 
 
+// 2. Tách toàn bộ logic của bạn ra một component con (KHÔNG export default)
+// Component này sẽ chứa các hook "động" như useSearchParams
 function LoginFormContent() {
   const { login } = useAuthStore()
   const router = useRouter()
-  const searchParams = useSearchParams()
+  // useSearchParams nằm an toàn bên trong component con này
+  const searchParams = useSearchParams() 
   
   const [email, setEmail] = useState("admin@example.com")
   const [password, setPassword] = useState("admin123")
   const [message, setMessage] = useState("")
   const [loading, setLoading] = useState(false)
-  const [loginStep, setLoginStep] = useState('form')
+  
+  const [loginStep, setLoginStep] = useState<'form' | 'choice'>('form')
 
   const handleLogin = async () => {
     setLoading(true)
@@ -35,24 +36,27 @@ function LoginFormContent() {
       const user = useAuthStore.getState().user
       toast.success(`Chào mừng trở lại, ${user?.name}!`)
 
-      const redirectUrl = searchParams.get('redirect')
+      const redirectUrl = searchParams.get('redirect') // Lấy URL (vd: /admin)
 
       if (user && (user.roles.includes('ADMIN') || user.roles.includes('STAFF') || user.roles.includes('MANAGER'))) {
         if (redirectUrl) {
-            router.push(redirectUrl);
+            router.push(redirectUrl); // Tự động quay lại /admin
             return;
         }
         setLoginStep('choice')
         setLoading(false)
       } else {
-        router.push('/')
+        router.push('/') // Chuyển về trang chủ (/)
       }
 
-    } catch (error) {
+    } catch (error) { // 3. Sửa lỗi 'error: any' thành 'error: unknown' (an toàn)
       let errorMessage = "Email hoặc mật khẩu không chính xác";
+      
+      // Kiểm tra kiểu dữ liệu của lỗi
       if (error instanceof Error) {
         errorMessage = error.message;
       }
+
       setMessage(errorMessage)
       toast.error(errorMessage)
       setLoading(false)
@@ -60,6 +64,7 @@ function LoginFormContent() {
   }
 
   return (
+    // 4. Return toàn bộ JSX của bạn (không cần bọc trong div cha)
     <>
       {loginStep === 'form' && (
         <Card className="w-full max-w-md shadow-lg animate-fade-in">
@@ -137,16 +142,25 @@ function LoginFormContent() {
   )
 }
 
+
+// 5. Component cha (export default) bây giờ chỉ làm 1 việc: Bọc Suspense
 export default function Login() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center p-4">
+      
+      {/* Bọc component con trong Suspense.
+        Next.js sẽ thấy điều này và biết rằng LoginFormContent cần chờ
+        dữ liệu (searchParams) trước khi hiển thị.
+      */}
       <Suspense fallback={
-        <div className="flex flex-col items-center justify-center p-4">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        // Fallback: Hiển thị 1 icon loading đơn giản trong lúc chờ
+        <div className="flex justify-center items-center p-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
       }>
         <LoginFormContent />
       </Suspense>
+
     </div>
   )
 }
