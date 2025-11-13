@@ -1,8 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { useRouter } from "next/navigation" 
-// CHÚ Ý: Tuyệt đối KHÔNG import useSearchParams từ next/navigation ở đây
+import { useState, Suspense } from "react"
+import { useRouter, useSearchParams } from "next/navigation" 
 import { useAuthStore } from "@/lib/authStore"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -12,17 +11,19 @@ import { toast } from "sonner"
 import Link from "next/link"
 import { Label } from "@/components/ui/label" 
 
-export default function Login() {
+// --- PHẦN 1: COMPONENT CON (Chứa logic xử lý Params) ---
+// Bắt buộc tách riêng phần này để Next.js hiểu đây là phần "Động"
+function LoginForm() {
   const { login } = useAuthStore()
   const router = useRouter()
   
-  // KHÔNG dùng useSearchParams() ở đây -> Tránh lỗi build Prerender
-
+  // Chỉ gọi useSearchParams bên trong Component con này
+  const searchParams = useSearchParams() 
+  
   const [email, setEmail] = useState("admin@example.com")
   const [password, setPassword] = useState("admin123")
   const [message, setMessage] = useState("")
   const [loading, setLoading] = useState(false)
-  
   const [loginStep, setLoginStep] = useState<'form' | 'choice'>('form')
 
   const handleLogin = async () => {
@@ -34,15 +35,8 @@ export default function Login() {
       const user = useAuthStore.getState().user
       toast.success(`Chào mừng trở lại, ${user?.name}!`)
 
-      // --- GIẢI PHÁP FIX LỖI BUILD ---
-      // Chỉ lấy param khi code đã chạy dưới browser (sau khi bấm nút)
-      // Next.js Build sẽ không quét thấy đoạn này
-      let redirectUrl = null;
-      if (typeof window !== "undefined") {
-         const params = new URLSearchParams(window.location.search);
-         redirectUrl = params.get('redirect');
-      }
-      // -------------------------------
+      // Lấy param redirect an toàn ở đây
+      const redirectUrl = searchParams.get('redirect') 
 
       if (user && (user.roles.includes('ADMIN') || user.roles.includes('STAFF') || user.roles.includes('MANAGER'))) {
         if (redirectUrl) {
@@ -63,11 +57,9 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center p-4">
-      {/* Không cần Suspense nữa vì không dùng hook gây lỗi */}
-      
+    <Card className="w-full max-w-md shadow-lg animate-fade-in">
       {loginStep === 'form' && (
-        <Card className="w-full max-w-md shadow-lg animate-fade-in">
+        <>
           <CardHeader className="space-y-2 text-center">
             <CardTitle className="text-2xl">Đăng nhập</CardTitle>
             <CardDescription>Đăng nhập vào tài khoản của bạn</CardDescription>
@@ -117,27 +109,44 @@ export default function Login() {
               </Link>
             </div>
           </CardContent>
-        </Card>
+        </>
       )}
 
       {loginStep === 'choice' && (
-        <Card className="w-full max-w-md shadow-lg animate-fade-in">
-          <CardHeader className="space-y-2 text-center">
+        <>
+            <CardHeader className="space-y-2 text-center">
             <CardTitle className="text-2xl">Đăng nhập thành công!</CardTitle>
             <CardDescription>Bạn muốn truy cập trang nào?</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
             <Button onClick={() => router.push('/admin')} className="gap-2">
-              <ShieldCheck size={16} />
-              Vào trang Quản trị (Admin)
+                <ShieldCheck size={16} />
+                Vào trang Quản trị (Admin)
             </Button>
             <Button variant="outline" onClick={() => router.push('/')} className="gap-2">
-              <Store size={16} />
-              Xem trang Bán hàng (Homepage)
+                <Store size={16} />
+                Xem trang Bán hàng (Homepage)
             </Button>
-          </CardContent>
-        </Card>
+            </CardContent>
+        </>
       )}
+    </Card>
+  )
+}
+
+// --- PHẦN 2: COMPONENT CHÍNH (Export Default) ---
+// Component này KHÔNG được dùng useSearchParams
+// Nó chỉ làm nhiệm vụ bọc Suspense
+export default function Login() {
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center p-4">
+      <Suspense fallback={
+        <div className="flex items-center justify-center p-8">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      }>
+        <LoginForm />
+      </Suspense>
     </div>
   )
 }
