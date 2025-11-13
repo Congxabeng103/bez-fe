@@ -1,7 +1,8 @@
 "use client"
 
-import { useState, Suspense } from "react"
-import { useRouter, useSearchParams } from "next/navigation" 
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation" 
+// ⚠️ QUAN TRỌNG: KHÔNG import useSearchParams, KHÔNG import Suspense
 import { useAuthStore } from "@/lib/authStore"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -11,20 +12,29 @@ import { toast } from "sonner"
 import Link from "next/link"
 import { Label } from "@/components/ui/label" 
 
-// --- PHẦN 1: COMPONENT CON (Chứa logic xử lý Params) ---
-// Bắt buộc tách riêng phần này để Next.js hiểu đây là phần "Động"
-function LoginForm() {
+export default function Login() {
   const { login } = useAuthStore()
   const router = useRouter()
-  
-  // Chỉ gọi useSearchParams bên trong Component con này
-  const searchParams = useSearchParams() 
-  
+
   const [email, setEmail] = useState("admin@example.com")
   const [password, setPassword] = useState("admin123")
   const [message, setMessage] = useState("")
   const [loading, setLoading] = useState(false)
   const [loginStep, setLoginStep] = useState<'form' | 'choice'>('form')
+  
+  // Biến state để lưu redirect url
+  const [redirectPath, setRedirectPath] = useState<string | null>(null)
+
+  // --- KHẮC TINH CỦA LỖI BUILD ---
+  // Code trong này chỉ chạy khi trang web đã hiện lên trên trình duyệt người dùng
+  // Server Build hoàn toàn không nhìn thấy đoạn này -> Không thể báo lỗi
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      setRedirectPath(params.get('redirect'))
+    }
+  }, [])
+  // -------------------------------
 
   const handleLogin = async () => {
     setLoading(true)
@@ -35,12 +45,10 @@ function LoginForm() {
       const user = useAuthStore.getState().user
       toast.success(`Chào mừng trở lại, ${user?.name}!`)
 
-      // Lấy param redirect an toàn ở đây
-      const redirectUrl = searchParams.get('redirect') 
-
+      // Sử dụng biến state đã lấy được từ useEffect
       if (user && (user.roles.includes('ADMIN') || user.roles.includes('STAFF') || user.roles.includes('MANAGER'))) {
-        if (redirectUrl) {
-            router.push(redirectUrl); 
+        if (redirectPath) {
+            router.push(redirectPath); 
             return;
         }
         setLoginStep('choice')
@@ -57,9 +65,10 @@ function LoginForm() {
   }
 
   return (
-    <Card className="w-full max-w-md shadow-lg animate-fade-in">
+    <div className="min-h-screen bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center p-4">
+      
       {loginStep === 'form' && (
-        <>
+        <Card className="w-full max-w-md shadow-lg animate-fade-in">
           <CardHeader className="space-y-2 text-center">
             <CardTitle className="text-2xl">Đăng nhập</CardTitle>
             <CardDescription>Đăng nhập vào tài khoản của bạn</CardDescription>
@@ -109,44 +118,28 @@ function LoginForm() {
               </Link>
             </div>
           </CardContent>
-        </>
+        </Card>
       )}
 
       {loginStep === 'choice' && (
-        <>
-            <CardHeader className="space-y-2 text-center">
+        <Card className="w-full max-w-md shadow-lg animate-fade-in">
+          <CardHeader className="space-y-2 text-center">
             <CardTitle className="text-2xl">Đăng nhập thành công!</CardTitle>
             <CardDescription>Bạn muốn truy cập trang nào?</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
             <Button onClick={() => router.push('/admin')} className="gap-2">
-                <ShieldCheck size={16} />
-                Vào trang Quản trị (Admin)
+              <ShieldCheck size={16} />
+              Vào trang Quản trị (Admin)
             </Button>
             <Button variant="outline" onClick={() => router.push('/')} className="gap-2">
-                <Store size={16} />
-                Xem trang Bán hàng (Homepage)
+              <Store size={16} />
+              Xem trang Bán hàng (Homepage)
             </Button>
-            </CardContent>
-        </>
+          </CardContent>
+        </Card>
       )}
-    </Card>
-  )
-}
 
-// --- PHẦN 2: COMPONENT CHÍNH (Export Default) ---
-// Component này KHÔNG được dùng useSearchParams
-// Nó chỉ làm nhiệm vụ bọc Suspense
-export default function Login() {
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center p-4">
-      <Suspense fallback={
-        <div className="flex items-center justify-center p-8">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      }>
-        <LoginForm />
-      </Suspense>
     </div>
   )
 }
