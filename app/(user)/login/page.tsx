@@ -1,5 +1,8 @@
 "use client"
 
+// 1. Dòng lệnh bắt buộc Next.js KHÔNG được tạo tĩnh trang này -> Fix lỗi build 100%
+export const dynamic = "force-dynamic"
+
 import { useState, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation" 
 import { useAuthStore } from "@/lib/authStore"
@@ -11,12 +14,10 @@ import { toast } from "sonner"
 import Link from "next/link"
 import { Label } from "@/components/ui/label" 
 
-// --- PHẦN 1: Tách Logic Form ra thành một Component con ---
+// Component con chứa logic
 function LoginFormContent() {
   const { login } = useAuthStore()
   const router = useRouter()
-  
-  // Sử dụng useSearchParams ở đây là an toàn vì nó đã nằm trong Suspense (ở dưới)
   const searchParams = useSearchParams() 
   
   const [email, setEmail] = useState("admin@example.com")
@@ -35,7 +36,6 @@ function LoginFormContent() {
       const user = useAuthStore.getState().user
       toast.success(`Chào mừng trở lại, ${user?.name}!`)
 
-      // Lấy params chuẩn từ Next.js
       const redirectUrl = searchParams.get('redirect') 
 
       if (user && (user.roles.includes('ADMIN') || user.roles.includes('STAFF') || user.roles.includes('MANAGER'))) {
@@ -58,7 +58,6 @@ function LoginFormContent() {
 
   return (
     <Card className="w-full max-w-md shadow-lg animate-fade-in">
-      {/* Form hiển thị */}
       {loginStep === 'form' && (
         <>
           <CardHeader className="space-y-2 text-center">
@@ -113,7 +112,6 @@ function LoginFormContent() {
         </>
       )}
 
-      {/* Lựa chọn hiển thị */}
       {loginStep === 'choice' && (
         <>
             <CardHeader className="space-y-2 text-center">
@@ -136,12 +134,10 @@ function LoginFormContent() {
   )
 }
 
-// --- PHẦN 2: Component Chính (Export Default) ---
-// Đây là phần QUAN TRỌNG NHẤT để fix lỗi build
+// Component chính
 export default function Login() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center p-4">
-      {/* Bọc toàn bộ logic form trong Suspense */}
       <Suspense fallback={<Loader2 className="animate-spin h-8 w-8 text-primary" />}>
         <LoginFormContent />
       </Suspense>
