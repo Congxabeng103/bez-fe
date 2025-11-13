@@ -32,7 +32,7 @@ updateProfile: (data: { firstName: string, lastName: string, phone: string | nul
   initialize: () => Promise<void>; 
 }
 
-const API_URL = "https://bez-api-cjazcdgqhbgndph2.eastasia-01.azurewebsites.net/api";
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 // --- 1. SỬA INTERFACE NÀY ---
 // (Interface này phải khớp với AuthenticationResponseDTO của Backend)
