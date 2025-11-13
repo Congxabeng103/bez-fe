@@ -794,6 +794,24 @@ export function OrderManagement() {
               <TabsTrigger value="DELIVERED">Đã giao</TabsTrigger>
               <TabsTrigger value="COMPLETED">Hoàn tất</TabsTrigger>
               <TabsTrigger value="CANCELLED">Đã hủy</TabsTrigger>
+              {isManagerOrAdmin && (
+              <TabsTrigger
+                value="PENDING_REFUND"
+                className="text-orange-600 font-semibold"
+              >
+                Chờ hoàn tiền
+              </TabsTrigger>
+            )}
+
+            {isManagerOrAdmin && (
+              <TabsTrigger
+                value="PENDING_STOCK_RETURN"
+                className="text-blue-600 font-semibold" 
+              >
+                Chờ nhập kho
+              </TabsTrigger>
+            )}
+            {/* --- KẾT THÚC THÊM --- */}
             </TabsList>
           </Tabs>
           <div className="mt-4 flex gap-2 items-center"> <Search size={18} className="text-muted-foreground" /> <Input placeholder="Tìm mã đơn, tên khách, SĐT..." value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(0); }} className="flex-1 h-9" /> </div>
