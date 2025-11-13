@@ -6,16 +6,16 @@ import { Footer } from "@/components/layout/footer" // (Import Footer v0.dev)
 // (Bạn không cần import Analytics/Metadata/Geist ở đây)
 
 export default function UserLayout({ // Đổi tên thành UserLayout
-  children,
+  children,
 }: Readonly<{
-  children: React.ReactNode
+  children: React.ReactNode
 }>) {
-  return (
+  return (
     // Dán code layout từ file app/layout.tsx (File 149) cũ vào đây
-    <div className={`flex flex-col min-h-screen`}>
-      <Header />
-      <main className="flex-grow">{children}</main>
-      <Footer />
-    </div>
-  )
+    <div className={`flex flex-col min-h-screen`}>
+      <Header />
+      <main className="flex-grow">{children}</main>
+      <Footer />
+    </div>
+ )
 }

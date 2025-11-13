@@ -1,8 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation" 
-// ⚠️ QUAN TRỌNG: KHÔNG import useSearchParams, KHÔNG import Suspense
+import { useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation" 
 import { useAuthStore } from "@/lib/authStore"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -15,26 +14,14 @@ import { Label } from "@/components/ui/label"
 export default function Login() {
   const { login } = useAuthStore()
   const router = useRouter()
-
+  const searchParams = useSearchParams() 
+  
   const [email, setEmail] = useState("admin@example.com")
   const [password, setPassword] = useState("admin123")
   const [message, setMessage] = useState("")
   const [loading, setLoading] = useState(false)
-  const [loginStep, setLoginStep] = useState<'form' | 'choice'>('form')
   
-  // Biến state để lưu redirect url
-  const [redirectPath, setRedirectPath] = useState<string | null>(null)
-
-  // --- KHẮC TINH CỦA LỖI BUILD ---
-  // Code trong này chỉ chạy khi trang web đã hiện lên trên trình duyệt người dùng
-  // Server Build hoàn toàn không nhìn thấy đoạn này -> Không thể báo lỗi
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search)
-      setRedirectPath(params.get('redirect'))
-    }
-  }, [])
-  // -------------------------------
+  const [loginStep, setLoginStep] = useState<'form' | 'choice'>('form')
 
   const handleLogin = async () => {
     setLoading(true)
@@ -45,16 +32,20 @@ export default function Login() {
       const user = useAuthStore.getState().user
       toast.success(`Chào mừng trở lại, ${user?.name}!`)
 
-      // Sử dụng biến state đã lấy được từ useEffect
+      const redirectUrl = searchParams.get('redirect') // Lấy URL (vd: /admin)
+
       if (user && (user.roles.includes('ADMIN') || user.roles.includes('STAFF') || user.roles.includes('MANAGER'))) {
-        if (redirectPath) {
-            router.push(redirectPath); 
+        // 2a. Nếu là Admin/Staff VÀ bị đá từ /admin ra:
+        if (redirectUrl) {
+            router.push(redirectUrl); // Tự động quay lại /admin
             return;
         }
+        // 2b. Nếu là Admin/Staff (tự đăng nhập): Hiển thị lựa chọn
         setLoginStep('choice')
         setLoading(false)
       } else {
-        router.push('/') 
+        // 2c. Nếu là User -> Tự động vào trang bán hàng
+        router.push('/') // Chuyển về trang chủ (/)
       }
 
     } catch (error: any) {
@@ -67,6 +58,7 @@ export default function Login() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center p-4">
       
+      {/* Bước 1: Hiển thị Form Đăng nhập */}
       {loginStep === 'form' && (
         <Card className="w-full max-w-md shadow-lg animate-fade-in">
           <CardHeader className="space-y-2 text-center">
@@ -106,6 +98,7 @@ export default function Login() {
               {loading ? "Đang đăng nhập..." : "Đăng nhập"}
             </Button>
 
+            {/* --- SỬA LỖI 'legacyBehavior' Ở ĐÂY --- */}
             <div className="space-y-2 text-center text-sm">
               <Link href="/forgot-password" className="text-primary hover:underline block w-full">
                   Quên mật khẩu?
@@ -117,10 +110,13 @@ export default function Login() {
                   Quay về trang chủ
               </Link>
             </div>
+            {/* --- KẾT THÚC SỬA --- */}
+
           </CardContent>
         </Card>
       )}
 
+      {/* Bước 2: Hiển thị Lựa chọn cho Admin/Staff */}
       {loginStep === 'choice' && (
         <Card className="w-full max-w-md shadow-lg animate-fade-in">
           <CardHeader className="space-y-2 text-center">
