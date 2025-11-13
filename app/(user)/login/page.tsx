@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, Suspense } from "react" // ⬅️ THÊM Suspense
+import { useState, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation" 
 import { useAuthStore } from "@/lib/authStore"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -11,11 +11,11 @@ import { toast } from "sonner"
 import Link from "next/link"
 import { Label } from "@/components/ui/label" 
 
-// --- COMPONENT CON CHỨA LOGIC VÀ HOOK useSearchParams ---
-function LoginFormContent() {
+// 1. Tách logic đăng nhập ra một component con (không export default)
+function LoginForm() {
   const { login } = useAuthStore()
   const router = useRouter()
-  const searchParams = useSearchParams() // ⬅️ Hook gây lỗi, nằm trong component con
+  const searchParams = useSearchParams() // Hook này cần Suspense
   
   const [email, setEmail] = useState("admin@example.com")
   const [password, setPassword] = useState("admin123")
@@ -33,29 +33,36 @@ function LoginFormContent() {
       const user = useAuthStore.getState().user
       toast.success(`Chào mừng trở lại, ${user?.name}!`)
 
-      const redirectUrl = searchParams.get('redirect') 
+      const redirectUrl = searchParams.get('redirect')
 
       if (user && (user.roles.includes('ADMIN') || user.roles.includes('STAFF') || user.roles.includes('MANAGER'))) {
         if (redirectUrl) {
-            router.push(redirectUrl); 
+            router.push(redirectUrl);
             return;
         }
         setLoginStep('choice')
         setLoading(false)
       } else {
-        router.push('/') 
+        router.push('/')
       }
 
-    } catch (error: any) {
-      setMessage(error.message || "Email hoặc mật khẩu không chính xác")
-      toast.error(error.message || "Email hoặc mật khẩu không chính xác")
+    } catch (error) {
+      // 2. Sửa lỗi TypeScript: 'error' is of type 'unknown'
+      let errorMessage = "Email hoặc mật khẩu không chính xác";
+      
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+
+      setMessage(errorMessage)
+      toast.error(errorMessage)
       setLoading(false)
     }
   }
 
   return (
-    <>
-      {/* Bước 1: Hiển thị Form Đăng nhập */}
+    <div className="min-h-screen bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center p-4">
+      
       {loginStep === 'form' && (
         <Card className="w-full max-w-md shadow-lg animate-fade-in">
           <CardHeader className="space-y-2 text-center">
@@ -106,11 +113,11 @@ function LoginFormContent() {
                   Quay về trang chủ
               </Link>
             </div>
+
           </CardContent>
         </Card>
       )}
 
-      {/* Bước 2: Hiển thị Lựa chọn cho Admin/Staff */}
       {loginStep === 'choice' && (
         <Card className="w-full max-w-md shadow-lg animate-fade-in">
           <CardHeader className="space-y-2 text-center">
@@ -129,22 +136,17 @@ function LoginFormContent() {
           </CardContent>
         </Card>
       )}
-    </>
+
+    </div>
   )
 }
 
-// --- EXPORT DEFAULT (BỌC SUSPENSE) ---
+// 3. Component chính export ra ngoài, bọc Suspense
 export default function Login() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center p-4">
-        {/* ⬅️ Ranh giới Suspense bắt buộc để Next.js không báo lỗi Prerender */}
-        <Suspense fallback={
-             <div className="flex items-center justify-center p-8">
-               <Loader2 className="animate-spin h-8 w-8 text-primary" />
-             </div>
-        }>
-            <LoginFormContent />
-        </Suspense>
-    </div>
+    // Fallback UI sẽ hiện ra trong tích tắc khi nextjs xử lý searchParams
+    <Suspense fallback={<div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin" /></div>}>
+      <LoginForm />
+    </Suspense>
   )
 }
