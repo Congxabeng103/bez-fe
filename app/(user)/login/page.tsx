@@ -1,7 +1,11 @@
 "use client"
 
+// 1. THÊM DÒNG NÀY ĐỂ SỬA LỖI TRIỆT ĐỂ
+// Nó báo cho Next.js bỏ qua việc tạo tĩnh trang này lúc build
+export const dynamic = "force-dynamic";
+
 import { useState, Suspense } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation" 
 import { useAuthStore } from "@/lib/authStore"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -9,21 +13,17 @@ import { Input } from "@/components/ui/input"
 import { ArrowRight, Loader2, ShieldCheck, Store } from "lucide-react"
 import { toast } from "sonner"
 import Link from "next/link"
-import { Label } from "@/components/ui/label"
+import { Label } from "@/components/ui/label" 
 
-// --- PHẦN 1: Tách logic form ra một component con ---
 function LoginFormContent() {
   const { login } = useAuthStore()
   const router = useRouter()
-  
-  // useSearchParams nằm ở đây, nên component này BẮT BUỘC phải được bọc trong Suspense
-  const searchParams = useSearchParams() 
+  const searchParams = useSearchParams()
   
   const [email, setEmail] = useState("admin@example.com")
   const [password, setPassword] = useState("admin123")
   const [message, setMessage] = useState("")
   const [loading, setLoading] = useState(false)
-  
   const [loginStep, setLoginStep] = useState('form')
 
   const handleLogin = async () => {
@@ -49,7 +49,6 @@ function LoginFormContent() {
       }
 
     } catch (error) {
-      // Xử lý lỗi an toàn cho TypeScript
       let errorMessage = "Email hoặc mật khẩu không chính xác";
       if (error instanceof Error) {
         errorMessage = error.message;
@@ -138,15 +137,12 @@ function LoginFormContent() {
   )
 }
 
-// --- PHẦN 2: Component cha Export Default ---
-// Component này bọc LoginFormContent trong Suspense để Next.js build thành công
 export default function Login() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center p-4">
       <Suspense fallback={
-        <div className="flex flex-col items-center justify-center p-4 bg-white rounded-lg shadow">
-            <Loader2 className="h-8 w-8 animate-spin text-primary mb-2" />
-            <p className="text-sm text-muted-foreground">Đang tải trang đăng nhập...</p>
+        <div className="flex flex-col items-center justify-center p-4">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
       }>
         <LoginFormContent />
