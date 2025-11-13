@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { useRouter } from "next/navigation" // BỎ import useSearchParams
+import { useState, Suspense } from "react"
+import { useRouter, useSearchParams } from "next/navigation" 
 import { useAuthStore } from "@/lib/authStore"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -11,11 +11,14 @@ import { toast } from "sonner"
 import Link from "next/link"
 import { Label } from "@/components/ui/label" 
 
-export default function Login() {
+// --- PHẦN 1: Tách Logic Form ra thành một Component con ---
+function LoginFormContent() {
   const { login } = useAuthStore()
   const router = useRouter()
-  // Đã xóa dòng const searchParams = useSearchParams() để tránh lỗi build
-
+  
+  // Sử dụng useSearchParams ở đây là an toàn vì nó đã nằm trong Suspense (ở dưới)
+  const searchParams = useSearchParams() 
+  
   const [email, setEmail] = useState("admin@example.com")
   const [password, setPassword] = useState("admin123")
   const [message, setMessage] = useState("")
@@ -32,12 +35,8 @@ export default function Login() {
       const user = useAuthStore.getState().user
       toast.success(`Chào mừng trở lại, ${user?.name}!`)
 
-      // --- SỬA ĐỔI QUAN TRỌNG ---
-      // Thay vì dùng hook, ta lấy params trực tiếp từ window khi bấm nút
-      // Cách này bypass hoàn toàn lỗi build của Next.js
-      const params = new URLSearchParams(window.location.search)
-      const redirectUrl = params.get('redirect') 
-      // ---------------------------
+      // Lấy params chuẩn từ Next.js
+      const redirectUrl = searchParams.get('redirect') 
 
       if (user && (user.roles.includes('ADMIN') || user.roles.includes('STAFF') || user.roles.includes('MANAGER'))) {
         if (redirectUrl) {
@@ -58,11 +57,10 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center p-4">
-      
-      {/* Bước 1: Hiển thị Form Đăng nhập */}
+    <Card className="w-full max-w-md shadow-lg animate-fade-in">
+      {/* Form hiển thị */}
       {loginStep === 'form' && (
-        <Card className="w-full max-w-md shadow-lg animate-fade-in">
+        <>
           <CardHeader className="space-y-2 text-center">
             <CardTitle className="text-2xl">Đăng nhập</CardTitle>
             <CardDescription>Đăng nhập vào tài khoản của bạn</CardDescription>
@@ -111,31 +109,42 @@ export default function Login() {
                   Quay về trang chủ
               </Link>
             </div>
-
           </CardContent>
-        </Card>
+        </>
       )}
 
-      {/* Bước 2: Hiển thị Lựa chọn cho Admin/Staff */}
+      {/* Lựa chọn hiển thị */}
       {loginStep === 'choice' && (
-        <Card className="w-full max-w-md shadow-lg animate-fade-in">
-          <CardHeader className="space-y-2 text-center">
+        <>
+            <CardHeader className="space-y-2 text-center">
             <CardTitle className="text-2xl">Đăng nhập thành công!</CardTitle>
             <CardDescription>Bạn muốn truy cập trang nào?</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
             <Button onClick={() => router.push('/admin')} className="gap-2">
-              <ShieldCheck size={16} />
-              Vào trang Quản trị (Admin)
+                <ShieldCheck size={16} />
+                Vào trang Quản trị (Admin)
             </Button>
             <Button variant="outline" onClick={() => router.push('/')} className="gap-2">
-              <Store size={16} />
-              Xem trang Bán hàng (Homepage)
+                <Store size={16} />
+                Xem trang Bán hàng (Homepage)
             </Button>
-          </CardContent>
-        </Card>
+            </CardContent>
+        </>
       )}
+    </Card>
+  )
+}
 
+// --- PHẦN 2: Component Chính (Export Default) ---
+// Đây là phần QUAN TRỌNG NHẤT để fix lỗi build
+export default function Login() {
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center p-4">
+      {/* Bọc toàn bộ logic form trong Suspense */}
+      <Suspense fallback={<Loader2 className="animate-spin h-8 w-8 text-primary" />}>
+        <LoginFormContent />
+      </Suspense>
     </div>
   )
 }
