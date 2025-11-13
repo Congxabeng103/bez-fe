@@ -9,7 +9,7 @@ import { Loader2, CheckCircle, XCircle } from "lucide-react"; // Icons
 import { Button } from "@/components/ui/button"; // Import Button
 
 // URL API Backend của bạn
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 // Component con chứa logic, phải bọc trong <Suspense>
 function ActivatePageContent() {

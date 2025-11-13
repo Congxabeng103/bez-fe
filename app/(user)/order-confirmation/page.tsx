@@ -9,7 +9,7 @@ import { useEffect, useState, Suspense, useRef } from "react"; // 1. Thêm useRe
 import { useAuthStore } from "@/lib/authStore";
 
 // --- Helper API Call (Giữ nguyên) ---
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
 const manualFetchApi = async (url: string, options: RequestInit = {}) => {
   // Lấy token từ store
   const { token } = useAuthStore.getState();

@@ -12,7 +12,7 @@ import { ProductResponseDTO } from "@/types/productDTO"; // 3. Import DTO
 import { toast } from "sonner"; // 4. Import toast
 import { Loader2 } from "lucide-react"; // 5. Import Loader
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 export default function Home() {
   // 6. State cho dữ liệu thật

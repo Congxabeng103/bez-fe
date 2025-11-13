@@ -80,7 +80,7 @@ type OrderAuditLogResponseDTO = {
 };
 
 // --- Helper API Call (Giữ nguyên) ---
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
 const manualFetchApi = async (url: string, options: RequestInit = {}) => {
   const { token } = useAuthStore.getState();
   if (!token) throw new Error("Bạn cần đăng nhập");

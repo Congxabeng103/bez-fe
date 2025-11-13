@@ -19,7 +19,7 @@ import { toast } from "sonner";
 import { ProductResponseDTO, ProductDetailResponseDTO } from "@/types/productDTO";
 import { VariantResponseDTO } from "@/types/variantDTO";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ;
 
 // Component Con (để dùng useParams)
 function ProductDetailContent() {

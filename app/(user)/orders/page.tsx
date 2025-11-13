@@ -2,17 +2,30 @@
 
 import { useAuthStore } from "@/lib/authStore";
 import { OrderCard } from "@/components/store/order-card";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button"; // Sửa: Thêm buttonVariants
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useCallback } from "react";
 import { Package, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-// Sửa: Thêm OrderStatus để dùng trong hàm update
 import { PageResponseDTO, UserOrderDTO, OrderStatus } from "@/types/userOrderDTO"; 
 
+// --- 1. THÊM CÁC IMPORT CHO POPUP ---
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Textarea } from "@/components/ui/textarea"; // Dùng cho lý do
+import { cn } from "@/lib/utils"; // Dùng cho cn
+
 // --- Helper API Call (Giữ nguyên) ---
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
 const manualFetchApi = async (url: string, options: RequestInit = {}) => {
   const { token } = useAuthStore.getState();
   if (!token) throw new Error("Bạn cần đăng nhập");
@@ -38,9 +51,13 @@ export default function OrdersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [pagination, setPagination] = useState({ page: 0, totalPages: 1, size: 5 });
 
-  // --- 1. SỬA: DÙNG 1 STATE LOADING THỐNG NHẤT ---
-  // 'retryingOrderId' đổi tên thành 'processingOrderId' để dùng chung
+  // State loading cho các nút trên card
   const [processingOrderId, setProcessingOrderId] = useState<number | null>(null);
+
+  // --- 2. THÊM STATE CHO POPUP KHIẾU NẠI ---
+  const [isReportDialogOpen, setIsReportDialogOpen] = useState(false);
+  const [reportReason, setReportReason] = useState("");
+  const [reportingOrderId, setReportingOrderId] = useState<number | null>(null);
 
   // fetchMyOrders (Giữ nguyên)
   const fetchMyOrders = useCallback(async () => {
@@ -71,7 +88,7 @@ export default function OrdersPage() {
     }
   }, [isAuthenticated, fetchMyOrders]);
 
-  // --- HÀM CẬP NHẬT TRẠNG THÁI 1 ĐƠN HÀNG TRONG LIST ---
+  // HÀM CẬP NHẬT TRẠNG THÁI (Giữ nguyên)
   const updateOrderStatusInList = (orderId: number, newStatus: OrderStatus) => {
     setOrders(prevOrders =>
       prevOrders.map(o =>
@@ -80,9 +97,9 @@ export default function OrdersPage() {
     );
   };
 
-  // --- 2. HÀM THANH TOÁN LẠI (Sửa lại tên state) ---
+  // HÀM THANH TOÁN LẠI (Giữ nguyên)
   const handleRetryPayment = async (orderId: number) => {
-    setProcessingOrderId(orderId); // Báo là: "Nút của đơn này đang load"
+    setProcessingOrderId(orderId); 
     try {
       const response = await manualFetchApi(
         `/v1/payment/${orderId}/retry-vnpay`,
@@ -96,52 +113,77 @@ export default function OrdersPage() {
       }
     } catch (err: any) {
       toast.error(err.message || "Lỗi khi thử thanh toán lại.");
-      setProcessingOrderId(null); // Tắt loading nếu lỗi
+      setProcessingOrderId(null); 
     }
   };
 
-  // --- 3. HÀM MỚI: XÁC NHẬN ĐÃ NHẬN HÀNG ---
+  // HÀM XÁC NHẬN ĐÃ NHẬN HÀNG (Giữ nguyên)
   const handleConfirmDelivery = async (orderId: number) => {
+    // (Tùy chọn: Bạn cũng có thể thêm 1 popup xác nhận cho hành động này)
     setProcessingOrderId(orderId);
     try {
       await manualFetchApi(`/v1/orders/my-orders/${orderId}/complete`, { method: 'PUT' });
       toast.success("Xác nhận đã nhận hàng thành công!");
-      // Cập nhật lại list orders để đổi trạng thái
       updateOrderStatusInList(orderId, 'COMPLETED');
     } catch (err: any) {
       toast.error(err.message || "Lỗi khi xác nhận.");
     } finally {
-      setProcessingOrderId(null); // Tắt loading
+      setProcessingOrderId(null); 
     }
   };
 
-  // --- 4. HÀM MỚI: KHIẾU NẠI ---
- const handleReportIssue = async (orderId: number) => {
-    // 1. Hỏi lý do
-    const reason = prompt("Vui lòng nhập nội dung khiếu nại (bắt buộc):");
-    if (!reason || reason.trim() === "") {
-      toast.info("Gửi khiếu nại đã bị hủy bỏ.");
-      return;
+  // --- 3. REFACTOR HÀM KHIẾU NẠI ---
+
+  // Hàm MỚI: Mở popup khiếu nại
+  const openReportDialog = (orderId: number) => {
+    setReportingOrderId(orderId);
+    setReportReason(""); // Xóa lý do cũ
+    setIsReportDialogOpen(true);
+  };
+
+  // Hàm MỚI: Đóng popup
+  const closeReportDialog = () => {
+    if (processingOrderId) return; // Không cho đóng khi đang gửi
+    setIsReportDialogOpen(false);
+    setReportingOrderId(null);
+  };
+
+  // Hàm MỚI: Gửi khiếu nại (logic từ `handleReportIssue` cũ)
+  const handleSubmitReport = async () => {
+    // 1. Kiểm tra
+    if (!reportingOrderId) return;
+    if (reportReason.trim() === "") {
+      toast.error("Vui lòng nhập nội dung khiếu nại.");
+      return; // Không đóng popup
     }
 
-    setProcessingOrderId(orderId);
+    setProcessingOrderId(reportingOrderId); // Bật loading
     try {
       // 2. Gửi API với 'body'
-      await manualFetchApi(`/v1/orders/my-orders/${orderId}/report-issue`, {
+      await manualFetchApi(`/v1/orders/my-orders/${reportingOrderId}/report-issue`, {
         method: 'PUT',
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: reason }) // Gửi DisputeRequestDTO
+        body: JSON.stringify({ reason: reportReason }) // Gửi DisputeRequestDTO
       });
       
       toast.success("Đã gửi khiếu nại. Chúng tôi sẽ liên hệ với bạn.");
-      updateOrderStatusInList(orderId, 'DISPUTE');
+      updateOrderStatusInList(reportingOrderId, 'DISPUTE');
+      closeReportDialog(); // Đóng popup SAU KHI thành công
       
     } catch (err: any) {
       toast.error(err.message || "Lỗi khi gửi khiếu nại.");
+      // Không đóng popup nếu lỗi
     } finally {
-      setProcessingOrderId(null);
+      // Chỉ tắt loading nếu API đã xong (dù thành công hay thất bại)
+      // Nếu thành công, `processingOrderId` đã được set null ở trên
+      if (reportingOrderId) {
+         setProcessingOrderId(null);
+      }
     }
   };
+
+  // --- HẾT REFACTOR ---
+
 
   // Loading (Giữ nguyên)
   if (isLoading) {
@@ -176,7 +218,7 @@ export default function OrdersPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
-            {/* --- 5. SỬA CHỖ NÀY: TRUYỀN TẤT CẢ PROPS XUỐNG --- */}
+            {/* --- 4. SỬA CHỖ NÀY: TRUYỀN HÀM MỞ POPUP --- */}
             {orders.map((order) => (
               <OrderCard
                 key={order.id}
@@ -188,11 +230,10 @@ export default function OrdersPage() {
                 // Props cho nút "Đã nhận hàng"
                 onConfirmDelivery={handleConfirmDelivery}
                 
-                // Props cho nút "Khiếu nại"
-                onReportIssue={handleReportIssue}
+                // Props cho nút "Khiếu nại" (Dùng hàm MỚI)
+                onReportIssue={openReportDialog} 
                 
                 // Báo cho Card biết nó có đang loading hay không
-                // Đổi 'isRetrying' thành 'isProcessing' cho thống nhất
                 isProcessing={processingOrderId === order.id}
               />
             ))}
@@ -200,6 +241,49 @@ export default function OrdersPage() {
           </div>
         )}
       </div>
+
+      {/* --- 5. THÊM POPUP XÁC NHẬN KHIẾU NẠI --- */}
+      <AlertDialog open={isReportDialogOpen} onOpenChange={setIsReportDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Gửi khiếu nại cho đơn hàng</AlertDialogTitle>
+            <AlertDialogDescription>
+              Vui lòng mô tả chi tiết vấn đề bạn gặp phải (ví dụ: sai sản phẩm, 
+              sản phẩm lỗi, hư hỏng...). Chúng tôi sẽ xem xét và liên hệ lại với bạn.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {/* Ô nhập lý do */}
+          <div className="py-2">
+            <Textarea
+              id="reportReason"
+              placeholder="Nhập nội dung khiếu nại (bắt buộc)..."
+              value={reportReason}
+              onChange={(e) => setReportReason(e.target.value)}
+              rows={5}
+              className="resize-none"
+              autoFocus
+            />
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={closeReportDialog} disabled={processingOrderId !== null}>
+              Hủy
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleSubmitReport}
+              disabled={processingOrderId !== null || reportReason.trim() === ""}
+              className={cn(buttonVariants({ variant: "destructive" }))} // Nút màu đỏ
+            >
+              {processingOrderId === reportingOrderId ? (
+                <Loader2 size={16} className="mr-2 animate-spin" />
+              ) : null}
+              Gửi khiếu nại
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     </div>
   );
 }
