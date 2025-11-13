@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, Suspense } from "react" // ⬅️ THÊM Suspense
 import { useRouter, useSearchParams } from "next/navigation" 
 import { useAuthStore } from "@/lib/authStore"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -11,10 +11,11 @@ import { toast } from "sonner"
 import Link from "next/link"
 import { Label } from "@/components/ui/label" 
 
-export default function Login() {
+// --- COMPONENT CON CHỨA LOGIC VÀ HOOK useSearchParams ---
+function LoginFormContent() {
   const { login } = useAuthStore()
   const router = useRouter()
-  const searchParams = useSearchParams() 
+  const searchParams = useSearchParams() // ⬅️ Hook gây lỗi, nằm trong component con
   
   const [email, setEmail] = useState("admin@example.com")
   const [password, setPassword] = useState("admin123")
@@ -32,20 +33,17 @@ export default function Login() {
       const user = useAuthStore.getState().user
       toast.success(`Chào mừng trở lại, ${user?.name}!`)
 
-      const redirectUrl = searchParams.get('redirect') // Lấy URL (vd: /admin)
+      const redirectUrl = searchParams.get('redirect') 
 
       if (user && (user.roles.includes('ADMIN') || user.roles.includes('STAFF') || user.roles.includes('MANAGER'))) {
-        // 2a. Nếu là Admin/Staff VÀ bị đá từ /admin ra:
         if (redirectUrl) {
-            router.push(redirectUrl); // Tự động quay lại /admin
+            router.push(redirectUrl); 
             return;
         }
-        // 2b. Nếu là Admin/Staff (tự đăng nhập): Hiển thị lựa chọn
         setLoginStep('choice')
         setLoading(false)
       } else {
-        // 2c. Nếu là User -> Tự động vào trang bán hàng
-        router.push('/') // Chuyển về trang chủ (/)
+        router.push('/') 
       }
 
     } catch (error: any) {
@@ -56,8 +54,7 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center p-4">
-      
+    <>
       {/* Bước 1: Hiển thị Form Đăng nhập */}
       {loginStep === 'form' && (
         <Card className="w-full max-w-md shadow-lg animate-fade-in">
@@ -98,7 +95,6 @@ export default function Login() {
               {loading ? "Đang đăng nhập..." : "Đăng nhập"}
             </Button>
 
-            {/* --- SỬA LỖI 'legacyBehavior' Ở ĐÂY --- */}
             <div className="space-y-2 text-center text-sm">
               <Link href="/forgot-password" className="text-primary hover:underline block w-full">
                   Quên mật khẩu?
@@ -110,8 +106,6 @@ export default function Login() {
                   Quay về trang chủ
               </Link>
             </div>
-            {/* --- KẾT THÚC SỬA --- */}
-
           </CardContent>
         </Card>
       )}
@@ -135,7 +129,22 @@ export default function Login() {
           </CardContent>
         </Card>
       )}
+    </>
+  )
+}
 
+// --- EXPORT DEFAULT (BỌC SUSPENSE) ---
+export default function Login() {
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center p-4">
+        {/* ⬅️ Ranh giới Suspense bắt buộc để Next.js không báo lỗi Prerender */}
+        <Suspense fallback={
+             <div className="flex items-center justify-center p-8">
+               <Loader2 className="animate-spin h-8 w-8 text-primary" />
+             </div>
+        }>
+            <LoginFormContent />
+        </Suspense>
     </div>
   )
 }
