@@ -221,7 +221,7 @@ export default function CheckoutPage() {
 
   // --- (Tính toán tiền... giữ nguyên) ---
   const total = getTotalPrice(); // Tạm tính
-  const shipping = total > 0 ? 30000 : 0;
+  const shipping = cart.length > 0 ? 30000 : 0;
   const grandTotal = total + shipping - couponDiscount;
   // --- KẾT THÚC TÍNH TOÁN ---
 

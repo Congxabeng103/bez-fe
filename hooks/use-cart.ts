@@ -2,9 +2,9 @@
 
 "use client";
 
-import { create } from "zustand"; // Import 'create' từ Zustand
+import { create } from "zustand";
 import { toast } from "sonner";
-import { useAuthStore } from "@/lib/authStore"; // Import store auth của bạn
+import { useAuthStore } from "@/lib/authStore";
 import { CartResponseDTO } from "@/types/cartDTO";
 
 // Định nghĩa CartItem của FE (thêm 'selected' cục bộ)
@@ -12,11 +12,11 @@ export interface CartItem extends CartResponseDTO {
   selected: boolean;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080/api";
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 /**
  * Helper function để gọi API thủ công
- * Tự động lấy token từ useAuthStore
+ * Sửa lỗi "Unexpected end of JSON input"
  */
 const manualFetchApi = async (url: string, options: RequestInit = {}) => {
   const { token } = useAuthStore.getState();
@@ -35,23 +35,57 @@ const manualFetchApi = async (url: string, options: RequestInit = {}) => {
     headers,
   });
 
-  const responseData = await response.json();
-  if (!response.ok || responseData.status !== 'SUCCESS') {
-    throw new Error(responseData.message || "Có lỗi xảy ra từ máy chủ");
+  // --- [FIX 1] Xử lý trường hợp 404 (Chưa có giỏ hàng) ---
+  // Nếu backend báo 404 -> Coi như giỏ hàng rỗng, trả về mảng rỗng luôn
+  if (response.status === 404) {
+    return []; 
   }
-  return responseData.data; // Chỉ trả về 'data'
+
+  // --- [FIX 2] Đọc text trước để tránh lỗi "Unexpected end of JSON" ---
+  const text = await response.text();
+  
+  // Nếu body rỗng (Backend trả về null hoặc void)
+  if (!text) {
+      // Nếu status OK mà body rỗng -> trả về null hoặc mảng rỗng tùy logic
+      return []; 
+  }
+
+  // Parse JSON an toàn
+  let responseData;
+  try {
+      responseData = JSON.parse(text);
+  } catch (e) {
+      throw new Error("Lỗi định dạng dữ liệu từ server");
+  }
+
+  // --- [FIX 3] Kiểm tra cấu trúc trả về ---
+  if (!response.ok) {
+    // Ưu tiên lấy message từ backend, nếu không thì lấy statusText
+    const errorMsg = responseData.message || responseData.error || "Có lỗi xảy ra";
+    throw new Error(errorMsg);
+  }
+
+  // Nếu cấu trúc là ApiResponseDTO { status: 'SUCCESS', data: ... }
+  if (responseData.status && responseData.data !== undefined) {
+      // Nếu status != SUCCESS -> Ném lỗi
+      if (responseData.status !== 'SUCCESS' && responseData.status !== 200) { // check linh hoạt
+         throw new Error(responseData.message || "Lỗi nghiệp vụ");
+      }
+      return responseData.data;
+  }
+
+  // Trường hợp Backend trả về list trực tiếp (List<CartItem>)
+  return responseData;
 };
 
 
-// --- TẠO STATE TOÀN CỤC (GLOBAL STORE) ---
+// --- TẠO STATE TOÀN CỤC ---
 
-// 1. Định nghĩa State và Actions
 interface CartState {
   cart: CartItem[];
   isLoaded: boolean;
   isMutating: boolean;
   
-  // Actions
   fetchCart: () => Promise<void>;
   addToCart: (variantId: number, quantity: number) => Promise<void>;
   updateQuantity: (variantId: number, quantity: number) => Promise<void>;
@@ -61,40 +95,39 @@ interface CartState {
   deselectAll: () => void;
   clearCart: () => void;
 
-  // Getters (Hàm tính toán)
   getTotalPrice: () => number;
   getSelectedCount: () => number;
-  getTotalItemsInCart: () => number; // Tính tổng SỐ LƯỢNG (cho icon header)
+  getTotalItemsInCart: () => number;
 }
 
-// 2. Tạo store (đổi tên từ 'useCart' thành 'useCartStore' bên trong,
-// nhưng export vẫn là 'useCart' để các file cũ không bị lỗi)
 export const useCart = create<CartState>((set, get) => ({
-  // --- State mặc định ---
   cart: [],
   isLoaded: false,
   isMutating: false,
 
-  // --- ACTIONS (Cập nhật state) ---
-  
   fetchCart: async () => {
-    // Luôn kiểm tra auth từ store
     const { isAuthenticated } = useAuthStore.getState();
     if (!isAuthenticated) {
-      set({ cart: [], isLoaded: true }); // Nếu không login, set giỏ rỗng
+      set({ cart: [], isLoaded: true });
       return;
     }
 
     try {
-      const data: CartResponseDTO[] = await manualFetchApi("/v1/cart");
-      const cartWithSelection = data.map((item) => ({
+      const data: any = await manualFetchApi("/v1/cart");
+      
+      // Đảm bảo data là mảng trước khi map
+      const listCart = Array.isArray(data) ? data : [];
+
+      const cartWithSelection = listCart.map((item: CartResponseDTO) => ({
         ...item,
-        selected: true, // Mặc định chọn tất cả
+        selected: true,
       }));
+      
       set({ cart: cartWithSelection, isLoaded: true });
     } catch (error: any) {
       console.error("Lỗi khi tải giỏ hàng:", error.message);
-      set({ cart: [], isLoaded: true }); // Set rỗng nếu lỗi
+      // Dù lỗi cũng set isLoaded = true để UI không quay mãi
+      set({ cart: [], isLoaded: true }); 
     }
   },
 
@@ -106,7 +139,7 @@ export const useCart = create<CartState>((set, get) => ({
         body: JSON.stringify({ variantId, quantity }),
       });
       toast.success("Đã thêm vào giỏ hàng!");
-      await get().fetchCart(); // Tải lại state toàn cục
+      await get().fetchCart();
     } catch (error: any) {
       toast.error(error.message || "Lỗi khi thêm sản phẩm");
     } finally {
@@ -125,10 +158,10 @@ export const useCart = create<CartState>((set, get) => ({
         method: "PUT",
         body: JSON.stringify({ variantId, quantity }),
       });
-      await get().fetchCart(); // Tải lại state toàn cục
+      await get().fetchCart();
     } catch (error: any) {
       toast.error(error.message || "Lỗi khi cập nhật");
-      await get().fetchCart(); // Tải lại (reset) nếu lỗi
+      await get().fetchCart(); 
     } finally {
       set({ isMutating: false });
     }
@@ -141,7 +174,7 @@ export const useCart = create<CartState>((set, get) => ({
         method: "DELETE",
       });
       toast.success("Đã xóa sản phẩm");
-      await get().fetchCart(); // Tải lại state toàn cục
+      await get().fetchCart();
     } catch (error: any) {
       toast.error(error.message || "Lỗi khi xóa");
     } finally {
@@ -149,8 +182,6 @@ export const useCart = create<CartState>((set, get) => ({
     }
   },
 
-  // --- ACTIONS LOCAL (Chỉ sửa state, không gọi API) ---
-  
   toggleSelected: (variantId) => {
     set((state) => ({
       cart: state.cart.map((item) =>
@@ -172,15 +203,12 @@ export const useCart = create<CartState>((set, get) => ({
   },
 
   clearCart: () => {
-    // TODO: Nên gọi API xóa hết
     set({ cart: [] });
     toast.success("Đã xóa giỏ hàng (local)");
   },
 
-  // --- GETTERS (Hàm tính toán) ---
-  
   getTotalPrice: () => {
-    const { cart } = get(); // Lấy state 'cart' hiện tại
+    const { cart } = get();
     return cart.reduce(
       (total, item) => (item.selected ? total + item.currentPrice * item.quantity : total),
       0
@@ -192,31 +220,25 @@ export const useCart = create<CartState>((set, get) => ({
     return cart.filter((item) => item.selected).length;
   },
 
-  // Tính TỔNG SỐ LƯỢNG (5 áo + 2 quần = 7)
   getTotalItemsInCart: () => {
     const { cart } = get();
     return cart.reduce((total, item) => total + item.quantity, 0);
   },
 }));
 
+// --- TỰ ĐỘNG ĐỒNG BỘ ---
+if (typeof window !== 'undefined') {
+    useAuthStore.subscribe((state, prevState) => {
+      if (state.isAuthenticated && !prevState.isAuthenticated) {
+        useCart.getState().fetchCart();
+      }
+      if (!state.isAuthenticated && prevState.isAuthenticated) {
+        useCart.setState({ cart: [], isLoaded: true });
+      }
+    });
 
-// --- TỰ ĐỘNG ĐỒNG BỘ VỚI AUTH STORE ---
-
-// 1. Lắng nghe thay đổi của Auth Store
-useAuthStore.subscribe((state, prevState) => {
-  // Khi vừa đăng nhập (từ false -> true)
-  if (state.isAuthenticated && !prevState.isAuthenticated) {
-    useCart.getState().fetchCart(); // Tự động tải giỏ hàng
-  }
-  // Khi vừa đăng xuất (từ true -> false)
-  if (!state.isAuthenticated && prevState.isAuthenticated) {
-    useCart.setState({ cart: [], isLoaded: true }); // Xóa sạch giỏ hàng
-  }
-});
-
-// 2. Tải giỏ hàng lần đầu khi load trang (nếu đã đăng nhập)
-// (Code này chạy 1 lần khi app khởi động)
-const { isAuthenticated } = useAuthStore.getState();
-if (isAuthenticated) {
-  useCart.getState().fetchCart();
+    const { isAuthenticated } = useAuthStore.getState();
+    if (isAuthenticated) {
+      useCart.getState().fetchCart();
+    }
 }

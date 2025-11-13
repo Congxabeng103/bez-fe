@@ -26,7 +26,7 @@ export default function CartPage() {
 
   const total = getTotalPrice(); // Hook đã dùng currentPrice
   const selectedCount = getSelectedCount();
-  const shipping = selectedCount > 0 ? 50000 : 0;
+  const shipping = selectedCount > 0 ? 30000 : 0;
   const grandTotal = total + shipping ;
 
   // --- THÊM STATE LOADING ---

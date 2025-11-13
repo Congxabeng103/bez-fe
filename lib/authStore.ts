@@ -124,7 +124,8 @@ export const useAuthStore = create<AuthStore>()(
 
       // --- 4. HÀM ĐĂNG KÝ (REGISTER) ---
       // (Sửa: Đã đổi thành 4 tham số)
-      register: async (firstName: string, lastName: string, email: string, password: string) => {
+     register: async (firstName: string, lastName: string, email: string, password: string) => {
+    try {
         const response = await fetch(`${API_URL}/v1/auth/register`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -132,17 +133,24 @@ export const useAuthStore = create<AuthStore>()(
         });
 
         if (!response.ok) {
-            let errorMessage = "Đăng ký thất bại. Email đã tồn tại.";
-             try {
-                const errJson = await response.json();
-                errorMessage = errJson.message || errorMessage;
-             } catch(e) {
-                 errorMessage = await response.text() || errorMessage;
-             }
-             throw new Error(errorMessage);
+            let errorMessage = "Lỗi hệ thống";
+            try {
+                // 1. Thử đọc JSON
+                const data = await response.json();
+                // Ưu tiên lấy data.message (VD: "Email đã được xử dụng")
+                errorMessage = data.message || JSON.stringify(data);
+            } catch (e) {
+                // 2. Nếu không phải JSON, đọc text thô
+                const text = await response.text();
+                if (text) errorMessage = text;
+            }
+            // Ném nguyên văn lỗi nhận được ra ngoài
+            throw new Error(errorMessage);
         }
-        // (Không set state, chỉ trả về thành công)
-      },
+    } catch (error: any) {
+        throw error;
+    }
+},
       
       // --- 5. HÀM QUÊN MẬT KHẨU (RESET PASSWORD) ---
       resetPassword: async (email) => {
