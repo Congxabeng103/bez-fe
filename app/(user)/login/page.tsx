@@ -1,15 +1,17 @@
-// 1. BẮT BUỘC: Dòng này ép Next.js không được build tĩnh trang này
-export const dynamic = "force-dynamic";
+import dynamic from 'next/dynamic'
 
-import { Suspense } from "react";
-import LoginForm from "./LoginForm";
+// 1. Import LoginForm theo cách "lười" (Lazy load) và TẮT SSR
+const LoginForm = dynamic(() => import('./LoginForm'), {
+  ssr: false, // <--- ĐÂY LÀ CHÌA KHÓA VẠN NĂNG
+  loading: () => <div className="flex h-screen items-center justify-center">Đang tải form đăng nhập...</div>,
+})
 
-// 2. Đây là Server Component (Không có 'use client')
+// 2. Server Component sạch sẽ
 export default function LoginPage() {
   return (
-    // 3. Vẫn giữ Suspense để an toàn tuyệt đối
-    <Suspense fallback={<div className="flex h-screen items-center justify-center">Đang tải trang...</div>}>
+    <div className="w-full">
+      {/* Không cần Suspense nữa vì ssr: false đã lo hết rồi */}
       <LoginForm />
-    </Suspense>
+    </div>
   )
 }
