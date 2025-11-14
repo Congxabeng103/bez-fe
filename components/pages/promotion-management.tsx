@@ -4,15 +4,25 @@ import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { Textarea } from "@/components/ui/textarea"; // Thêm Textarea
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Plus, Edit2, Trash2, Search, Percent, RotateCcw } from "lucide-react"; 
+import { Plus, Edit2, Trash2, Search, Percent, RotateCcw, XCircle } from "lucide-react";
 import { useAuthStore } from "@/lib/authStore";
 import { Pagination } from "@/components/store/pagination";
 import { toast } from "sonner";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"; 
-import { manualFetchApi } from "@/lib/api"; // <-- SỬA 1: Import hàm fetch
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { manualFetchApi } from "@/lib/api";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const ITEMS_PER_PAGE = 5;
 
@@ -24,8 +34,9 @@ interface PromotionResponse {
   discountValue: number; // %
   startDate: string;
   endDate: string;
-  active: boolean; // Dùng để lọc
+  active: boolean;
   createdAt: string;
+  productCount: number; // Đã thêm
 }
 
 interface PromotionFormData {
@@ -37,14 +48,22 @@ interface PromotionFormData {
   active: boolean;
 }
 
+// Kiểu cho state lỗi
+type PromotionFormErrors = Partial<Record<keyof PromotionFormData, string>>;
+
+// Kiểu cho state của Dialog
+interface DialogState {
+  isOpen: boolean;
+  action: 'delete' | 'reactivate' | 'permanentDelete' | null;
+  promotion: PromotionResponse | null;
+}
+
 // --- Component ---
 export function PromotionManagement() {
-  // --- SỬA 2: Lấy user và quyền ---
+  // --- Lấy user và quyền ---
   const { user } = useAuthStore();
   const roles = user?.roles || [];
-  // (Chỉ Manager và Admin mới có quyền sửa)
   const canEdit = roles.includes("ADMIN") || roles.includes("MANAGER");
-  // --- KẾT THÚC SỬA 2 ---
 
   // --- States ---
   const [promotions, setPromotions] = useState<PromotionResponse[]>([]);
@@ -52,22 +71,29 @@ export function PromotionManagement() {
   const [totalPromotionPages, setTotalPromotionPages] = useState(0);
   const [promotionSearchTerm, setPromotionSearchTerm] = useState("");
   const [isFetchingPromotions, setIsFetchingPromotions] = useState(false);
-  const [filterStatus, setFilterStatus] = useState("ACTIVE"); 
+  const [filterStatus, setFilterStatus] = useState("ACTIVE");
 
   // Form Promotion
   const [showPromotionForm, setShowPromotionForm] = useState(false);
-  const [editingPromotionId, setEditingPromotionId] = useState<number | null>(null); // null = Tạo mới
+  const [editingPromotionId, setEditingPromotionId] = useState<number | null>(null);
   const [promotionFormData, setPromotionFormData] = useState<PromotionFormData>({
     name: "", description: "", discountValue: "", startDate: "", endDate: "", active: true,
   });
 
-  const [formError, setFormError] = useState<string | null>(null);
+  // State lỗi (Inline validation)
+  const [formErrors, setFormErrors] = useState<PromotionFormErrors>({});
+  const [apiError, setApiError] = useState<string | null>(null);
 
-  // --- API Fetching (Đã sửa) ---
+  // State quản lý dialog xác nhận
+  const [dialogState, setDialogState] = useState<DialogState>({
+    isOpen: false,
+    action: null,
+    promotion: null,
+  });
+
+  // --- API Fetching ---
   const fetchPromotions = useCallback(async () => {
     setIsFetchingPromotions(true);
-    
-    // 1. Tạo chuỗi query
     const query = new URLSearchParams();
     query.append("page", (promotionPage - 1).toString());
     query.append("size", ITEMS_PER_PAGE.toString());
@@ -76,267 +102,429 @@ export function PromotionManagement() {
     if (promotionSearchTerm) query.append("search", promotionSearchTerm);
 
     try {
-      // 2. Gọi manualFetchApi
+      // Hàm fetch này giả định đã được cấu hình để gửi token
       const result = await manualFetchApi(`/v1/promotions?${query.toString()}`);
-      
       if (result.status === 'SUCCESS' && result.data) {
         setPromotions(result.data.content); setTotalPromotionPages(result.data.totalPages);
       } else throw new Error(result.message || "Lỗi tải khuyến mãi");
-    } catch (err: any) { 
-      // Lỗi 403 (Forbidden) sẽ được bắt ở đây nếu STAFF cố tình truy cập
-      toast.error(`Lỗi tải Khuyến mãi (%): ${err.message}`); 
+    } catch (err: any) {
+      toast.error(`Lỗi tải Khuyến mãi (%): ${err.message}`);
     }
     finally { setIsFetchingPromotions(false); }
-  }, [promotionPage, promotionSearchTerm, filterStatus]); // (Đã xóa 'token' khỏi dependency)
+  }, [promotionPage, promotionSearchTerm, filterStatus]);
 
-  // --- useEffects ---
   useEffect(() => { fetchPromotions(); }, [fetchPromotions]);
 
   // --- Handlers ---
   const resetPromotionForm = () => {
-    setShowPromotionForm(false); setEditingPromotionId(null); setFormError(null);
+    setShowPromotionForm(false); setEditingPromotionId(null);
+    setApiError(null);
+    setFormErrors({});
     setPromotionFormData({ name: "", description: "", discountValue: "", startDate: "", endDate: "", active: true });
+  }
+
+  // Hàm Validate (cho inline)
+  const validateForm = (): PromotionFormErrors => {
+    const newErrors: PromotionFormErrors = {};
+    const { name, discountValue, startDate, endDate } = promotionFormData;
+
+    if (!name.trim()) {
+      newErrors.name = "Tên khuyến mãi không được để trống.";
+    }
+    const discNum = Number(discountValue);
+    if (isNaN(discNum) || discNum <= 0 || discNum > 100) {
+      newErrors.discountValue = "Giá trị (%) phải là số lớn hơn 0 và nhỏ hơn hoặc bằng 100.";
+    }
+    if (!startDate) {
+      newErrors.startDate = "Vui lòng chọn ngày bắt đầu.";
+    }
+    if (!endDate) {
+      newErrors.endDate = "Vui lòng chọn ngày kết thúc.";
+    } else if (startDate && startDate > endDate) {
+      newErrors.endDate = "Ngày kết thúc phải sau hoặc bằng ngày bắt đầu.";
+    }
+    // Kiểm tra ngày bắt đầu trong quá khứ (chỉ khi tạo mới)
+    const today = new Date().toISOString().split('T')[0];
+    if (startDate && startDate < today && !editingPromotionId) {
+        newErrors.startDate = "Ngày bắt đầu không thể là ngày trong quá khứ.";
+    }
+    return newErrors;
   }
 
   // Submit Form (Tạo/Sửa)
   const handlePromotionSubmit = async () => {
-    if (!canEdit) { // <-- SỬA 3: Kiểm tra quyền
-      toast.error("Bạn không có quyền thực hiện hành động này.");
+    if (!canEdit) { toast.error("Bạn không có quyền thực hiện hành động này."); return; }
+    setApiError(null); setFormErrors({});
+
+    const validationErrors = validateForm();
+    if (Object.keys(validationErrors).length > 0) {
+      setFormErrors(validationErrors);
+      toast.error("Vui lòng kiểm tra lại các trường có lỗi.");
       return;
     }
-    
-    setFormError(null);
-
-    // --- VALIDATION (Giữ nguyên) ---
-    if (!promotionFormData.name.trim()) return setFormError("Tên KM trống.");
-    const discountValue = Number(promotionFormData.discountValue);
-    if (isNaN(discountValue) || discountValue <= 0 || discountValue > 100) { 
-        return setFormError("% giảm không hợp lệ (phải từ 1-100).");
-    }
-    if (!promotionFormData.startDate || !promotionFormData.endDate) return setFormError("Ngày trống.");
-
-    const today = new Date().toISOString().split('T')[0];
-    
-    if (promotionFormData.startDate < today && !editingPromotionId) {
-        return setFormError("Ngày bắt đầu không thể là ngày trong quá khứ.");
-    }
-
-    if (promotionFormData.startDate > promotionFormData.endDate) {
-        return setFormError("Ngày kết thúc phải sau ngày bắt đầu.");
-    }
-    // --- HẾT VALIDATION ---
 
     const isEditing = !!editingPromotionId;
     const url = isEditing ? `/v1/promotions/${editingPromotionId}` : `/v1/promotions`;
-    const method = isEditing ? "PUT" : "POST"; 
+    const method = isEditing ? "PUT" : "POST";
 
     const requestBody = {
-      ...promotionFormData, 
-      discountValue: discountValue,
+      ...promotionFormData,
+      discountValue: Number(promotionFormData.discountValue),
     };
 
     try {
-      // --- SỬA 4: Dùng hàm fetch chung ---
-      const result = await manualFetchApi(url, { 
-        method, 
-        body: JSON.stringify(requestBody) 
+      const result = await manualFetchApi(url, {
+        method,
+        body: JSON.stringify(requestBody)
       });
-      // --- KẾT THÚC SỬA 4 ---
-      
       if (result.status === 'SUCCESS') {
         toast.success(isEditing ? "Cập nhật thành công!" : "Thêm thành công!");
         resetPromotionForm(); fetchPromotions();
       } else {
-         throw new Error(result.message || (isEditing ? "Cập nhật thất bại" : "Thêm thất bại"));
+        throw new Error(result.message || (isEditing ? "Cập nhật thất bại" : "Thêm thất bại"));
       }
-    } catch (err: any) { 
-      // Bắt lỗi 409 (trùng lặp) hoặc 403 (không quyền)
+    } catch (err: any) {
       if (err.message && (err.message.toLowerCase().includes("đã tồn tại") || err.message.toLowerCase().includes("duplicate"))) {
-          setFormError(err.message);
-          toast.error(err.message);
+        setFormErrors({ name: err.message }); // Lỗi trùng tên
+        toast.error(err.message);
       } else {
-          toast.error(`Lỗi: ${err.message}`); 
-          setFormError(err.message);
+        toast.error(`Lỗi: ${err.message}`);
+        setApiError(err.message);
       }
     }
   };
 
   // Mở form Sửa
   const handleEditPromotion = (promo: PromotionResponse) => {
-    if (!canEdit) { // <-- SỬA 5: Kiểm tra quyền
-      toast.error("Bạn không có quyền sửa.");
-      return;
-    }
+    if (!canEdit) { toast.error("Bạn không có quyền sửa."); return; }
     setPromotionFormData({
-        name: promo.name, description: promo.description || "",
-        discountValue: promo.discountValue, startDate: promo.startDate,
-        endDate: promo.endDate, active: promo.active,
+      name: promo.name, description: promo.description || "",
+      discountValue: promo.discountValue, startDate: promo.startDate,
+      endDate: promo.endDate, active: promo.active,
     });
-    setEditingPromotionId(promo.id); setShowPromotionForm(true); setFormError(null);
+    setEditingPromotionId(promo.id);
+    setShowPromotionForm(true);
+    setApiError(null);
+    setFormErrors({});
   };
 
-  // Xóa (Soft Delete)
-  const handleDeletePromotion = async (id: number) => {
-    if (!canEdit) { // <-- SỬA 6: Kiểm tra quyền
-      toast.error("Bạn không có quyền ngừng hoạt động.");
-      return;
-    }
-    
-    if (!confirm("Ngừng hoạt động khuyến mãi này?")) return;
-    
-    try {
-      // --- SỬA 7: Dùng hàm fetch chung ---
-      const result = await manualFetchApi(`/v1/promotions/${id}`, { method: "DELETE" });
-      // --- KẾT THÚC SỬA 7 ---
-      
-      if (result.status === 'SUCCESS') {
-        toast.success("Đã ngừng hoạt động khuyến mãi.");
-        fetchPromotions(); // Tải lại
-      } else throw new Error(result.message || "Xóa thất bại");
-    } catch (err: any) { toast.error(`Lỗi: ${err.message}`); }
-  };
-  
-  // Kích hoạt lại (PUT)
-  const handleReactivatePromotion = async (promo: PromotionResponse) => {
-    if (!canEdit) { // <-- SỬA 8: Kiểm tra quyền
-      toast.error("Bạn không có quyền kích hoạt lại.");
-      return;
-    }
-    
-    if (!confirm(`Kích hoạt lại khuyến mãi "${promo.name}"?`)) return;
-    const url = `/v1/promotions/${promo.id}`;
-    const requestBody = { ...promo, active: true }; // Gửi lại data cũ, set active=true
-    
-    try {
-      // --- SỬA 9: Dùng hàm fetch chung ---
-      const result = await manualFetchApi(url, { 
-          method: "PUT", 
-          body: JSON.stringify(requestBody) 
-      });
-      // --- KẾT THÚC SỬA 9 ---
-      
-      if (result.status === 'SUCCESS') {
-        toast.success("Kích hoạt lại khuyến mãi thành công!");
-        fetchPromotions(); // Tải lại
-      } else throw new Error(result.message || "Kích hoạt thất bại");
-    } catch (err: any) { toast.error(`Lỗi: ${err.message}`); }
-  };
-  
-  // Xử lý đổi Tab
+  // Đổi Tab
   const handleTabChange = (newStatus: string) => {
-      setFilterStatus(newStatus);
-      setPromotionPage(1);
-      setPromotionSearchTerm("");
-      setPromotions([]);
+    setFilterStatus(newStatus); setPromotionPage(1);
+    setPromotionSearchTerm(""); setPromotions([]);
   };
+
+  // --- Logic Dialog Xác nhận ---
+  
+  // Hàm đóng dialog
+  const closeDialog = () => {
+    setDialogState({ isOpen: false, action: null, promotion: null });
+  };
+
+  // Hàm thực thi hành động sau khi xác nhận
+  const handleConfirmAction = async () => {
+    const { action, promotion } = dialogState;
+    if (!promotion || !canEdit) { toast.error("Hành động không hợp lệ hoặc bạn không có quyền."); closeDialog(); return; };
+
+    try {
+      // 1. Logic cho "Ngừng hoạt động"
+      if (action === 'delete') {
+        const result = await manualFetchApi(`/v1/promotions/${promotion.id}`, { method: "DELETE" });
+        if (result.status === 'SUCCESS') { toast.success("Đã ngừng hoạt động khuyến mãi."); fetchPromotions(); }
+        else throw new Error(result.message || "Ngừng hoạt động thất bại");
+      }
+
+      // 2. Logic cho "Kích hoạt lại"
+      else if (action === 'reactivate') {
+        const url = `/v1/promotions/${promotion.id}`;
+        const requestBody = {
+          name: promotion.name, description: promotion.description, discountValue: promotion.discountValue,
+          startDate: promotion.startDate, endDate: promotion.endDate, active: true
+        };
+        const result = await manualFetchApi(url, { method: "PUT", body: JSON.stringify(requestBody) });
+        if (result.status === 'SUCCESS') { toast.success("Kích hoạt lại khuyến mãi thành công!"); fetchPromotions(); }
+        else throw new Error(result.message || "Kích hoạt thất bại");
+      }
+
+      // 3. Logic cho "Xóa vĩnh viễn"
+      else if (action === 'permanentDelete') {
+        // Kiểm tra logic lần cuối (mặc dù backend cũng kiểm tra)
+        if (promotion.productCount > 0) {
+            toast.error("Không thể xóa vĩnh viễn KM đang có sản phẩm áp dụng.");
+            closeDialog();
+            return;
+        }
+        const result = await manualFetchApi(`/v1/promotions/permanent-delete/${promotion.id}`, { method: "DELETE" });
+        if (result.status === 'SUCCESS') { toast.success("Đã xóa vĩnh viễn khuyến mãi."); fetchPromotions(); }
+        else throw new Error(result.message || "Xóa vĩnh viễn thất bại");
+      }
+    } catch (err: any) {
+      toast.error(`Lỗi: ${err.message}`);
+    } finally {
+      closeDialog();
+    }
+  };
+
 
   // --- JSX ---
   return (
     <div className="p-4 sm:p-6 space-y-6">
+      {/* Tiêu đề */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
-         <div> <h1 className="text-2xl sm:text-3xl font-bold">Khuyến mãi (%)</h1> <p className="text-sm text-muted-foreground mt-1">Quản lý chương trình giảm giá theo phần trăm</p> </div>
-         
-         {/* --- SỬA 10: Ẩn nút "Thêm" nếu là STAFF --- */}
-         {canEdit && (
-            <Button onClick={() => { resetPromotionForm(); setShowPromotionForm(true); }} className="gap-1.5 self-start sm:self-center" size="sm"> 
-              <Plus size={16} /> Thêm KM (%) 
-            </Button>
-         )}
-         {/* --- KẾT THÚC SỬA 10 --- */}
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold">Khuyến mãi (%)</h1>
+          <p className="text-sm text-muted-foreground mt-1">Quản lý chương trình giảm giá theo phần trăm</p>
+        </div>
+        {canEdit && (
+          <Button onClick={() => { resetPromotionForm(); setShowPromotionForm(true); }} className="gap-1.5 self-start sm:self-center" size="sm">
+            <Plus size={16} /> Thêm KM (%)
+          </Button>
+        )}
       </div>
 
-       {formError && ( <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md border border-destructive/30 animate-shake">{formError}</div> )}
+      {/* Form Thêm/Sửa */}
+      {showPromotionForm && canEdit && (
+        <Card className="border-purple-500/50 shadow-md animate-fade-in">
+          <CardHeader className="pb-4 border-b">
+            <CardTitle className="text-lg font-semibold">{editingPromotionId ? "Chỉnh sửa KM (%)" : "Thêm KM (%) mới"}</CardTitle>
+          </CardHeader>
+          <CardContent className="pt-6 space-y-5">
+            {/* Lỗi API chung */}
+            {apiError && (
+              <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md border border-destructive/30 animate-shake">
+                {apiError}
+              </div>
+            )}
 
-       {/* Ẩn Form Thêm/Sửa nếu là STAFF */}
-       {showPromotionForm && canEdit && (
-         <Card className="border-purple-500/50 shadow-md animate-fade-in">
-           <CardHeader className="pb-4 border-b"> <CardTitle className="text-lg font-semibold">{editingPromotionId ? "Chỉnh sửa KM (%)" : "Thêm KM (%) mới"}</CardTitle> </CardHeader>
-           <CardContent className="pt-6 space-y-5">
-             {/* ... (Code Form Inputs giữ nguyên) ... */}
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Input placeholder="Tên khuyến mãi *" value={promotionFormData.name} onChange={(e) => setPromotionFormData({ ...promotionFormData, name: e.target.value })}/>
-              <Textarea placeholder="Mô tả (tùy chọn)" value={promotionFormData.description} onChange={(e) => setPromotionFormData({ ...promotionFormData, description: e.target.value })} className="min-h-[40px] md:min-h-[auto]"/>
-            </div>
-            <div>
-              <Label htmlFor="promoDiscount" className="text-xs text-muted-foreground">Phần trăm giảm *</Label>
-               <div className="relative mt-1">
-                   <Input id="promoDiscount" placeholder="vd: 15" type="number" value={promotionFormData.discountValue} min="1" max="100" onChange={(e) => setPromotionFormData({ ...promotionFormData, discountValue: e.target.value })}/>
-                   <Percent size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"/>
-               </div>
-            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div><Label htmlFor="promoStartDate" className="text-xs text-muted-foreground">Ngày bắt đầu *</Label><Input id="promoStartDate" type="date" value={promotionFormData.startDate} onChange={(e) => setPromotionFormData({ ...promotionFormData, startDate: e.target.value })}/></div>
-              <div><Label htmlFor="promoEndDate" className="text-xs text-muted-foreground">Ngày kết thúc *</Label><Input id="promoEndDate" type="date" value={promotionFormData.endDate} onChange={(e) => setPromotionFormData({ ...promotionFormData, endDate: e.target.value })}/></div>
+              {/* Tên khuyến mãi */}
+              <div>
+                <Input
+                  placeholder="Tên khuyến mãi *"
+                  value={promotionFormData.name}
+                  onChange={(e) => setPromotionFormData({ ...promotionFormData, name: e.target.value })}
+                  className={formErrors.name ? "border-destructive" : ""}
+                />
+                {formErrors.name && (
+                  <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.name}</p>
+                )}
+              </div>
+              {/* Mô tả */}
+              <div>
+                <Textarea
+                  placeholder="Mô tả (tùy chọn)"
+                  value={promotionFormData.description}
+                  onChange={(e) => setPromotionFormData({ ...promotionFormData, description: e.target.value })}
+                  className="min-h-[40px] md:min-h-[auto]"
+                />
+              </div>
             </div>
+
+            {/* Phần trăm giảm */}
+            <div>
+              <div className="relative mt-1">
+                <Input
+                  id="promoDiscount"
+                  placeholder="vd: 15"
+                  type="number"
+                  value={promotionFormData.discountValue}
+                  min="1" max="100"
+                  onChange={(e) => setPromotionFormData({ ...promotionFormData, discountValue: e.target.value })}
+                  className={formErrors.discountValue ? "border-destructive" : ""}
+                />
+                <Percent size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              </div>
+              {formErrors.discountValue && (
+                <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.discountValue}</p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Ngày bắt đầu */}
+              <div>
+                <Label htmlFor="promoStartDate" className={`text-xs ${formErrors.startDate ? 'text-destructive' : 'text-muted-foreground'}`}>Ngày bắt đầu *</Label>
+                <Input
+                  id="promoStartDate"
+                  type="date"
+                  value={promotionFormData.startDate}
+                  onChange={(e) => setPromotionFormData({ ...promotionFormData, startDate: e.target.value })}
+                  className={formErrors.startDate ? "border-destructive" : ""}
+                />
+                {formErrors.startDate && (
+                  <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.startDate}</p>
+                )}
+              </div>
+              {/* Ngày kết thúc */}
+              <div>
+                <Label htmlFor="promoEndDate" className={`text-xs ${formErrors.endDate ? 'text-destructive' : 'text-muted-foreground'}`}>Ngày kết thúc *</Label>
+                <Input
+                  id="promoEndDate"
+                  type="date"
+                  value={promotionFormData.endDate}
+                  onChange={(e) => setPromotionFormData({ ...promotionFormData, endDate: e.target.value })}
+                  className={formErrors.endDate ? "border-destructive" : ""}
+                />
+                {formErrors.endDate && (
+                  <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.endDate}</p>
+                )}
+              </div>
+            </div>
+
+            {/* Active Checkbox */}
             <div className="flex items-center gap-2">
-               <Checkbox id="promoActiveForm" checked={promotionFormData.active} onCheckedChange={(checked) => setPromotionFormData({ ...promotionFormData, active: Boolean(checked) })}/>
-               <Label htmlFor="promoActiveForm" className="text-sm">Kích hoạt khuyến mãi này</Label>
+              <Checkbox id="promoActiveForm" checked={promotionFormData.active} onCheckedChange={(checked) => setPromotionFormData({ ...promotionFormData, active: Boolean(checked) })} />
+              <Label htmlFor="promoActiveForm" className="text-sm">Kích hoạt khuyến mãi này</Label>
             </div>
+            {/* Nút Form */}
             <div className="flex gap-3 pt-3 border-t">
               <Button onClick={handlePromotionSubmit} className="flex-1">{editingPromotionId ? "Cập nhật" : "Lưu"} khuyến mãi</Button>
               <Button variant="outline" onClick={resetPromotionForm} className="flex-1">Hủy</Button>
             </div>
-           </CardContent>
-         </Card>
-       )}
+          </CardContent>
+        </Card>
+      )}
 
-      {/* --- Danh sách Promotions (%) (Đã thêm Tabs) --- */}
+      {/* --- Danh sách Promotions (Bảng) --- */}
       <Card className="shadow-sm">
         <CardHeader>
           <CardTitle className="text-xl font-semibold">Danh sách Khuyến mãi (%)</CardTitle>
-           {/* Tabs Lọc */}
-           <Tabs value={filterStatus} onValueChange={handleTabChange} className="mt-4">
-             <TabsList className="grid w-full grid-cols-3 md:w-[400px]">
-               <TabsTrigger value="ACTIVE">Đang hoạt động</TabsTrigger>
-               <TabsTrigger value="INACTIVE">Ngừng hoạt động</TabsTrigger>
-               <TabsTrigger value="ALL">Tất cả</TabsTrigger>
-             </TabsList>
-           </Tabs>
-           <div className="mt-3 flex gap-2 items-center">
-             <Search size={18} className="text-muted-foreground" />
-             <Input placeholder="Tìm theo tên khuyến mãi..." value={promotionSearchTerm} onChange={(e) => { setPromotionSearchTerm(e.target.value); setPromotionPage(1); }} className="h-9 text-sm"/>
-           </div>
+          {/* Tabs Lọc */}
+          <Tabs value={filterStatus} onValueChange={handleTabChange} className="mt-4">
+            <TabsList className="grid w-full grid-cols-3 md:w-[400px]">
+              <TabsTrigger value="ACTIVE">Đang hoạt động</TabsTrigger>
+              <TabsTrigger value="INACTIVE">Ngừng hoạt động</TabsTrigger>
+              <TabsTrigger value="ALL">Tất cả</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          {/* Search Bar */}
+          <div className="mt-3 flex gap-2 items-center">
+            <Search size={18} className="text-muted-foreground" />
+            <Input placeholder="Tìm theo tên khuyến mãi..." value={promotionSearchTerm} onChange={(e) => { setPromotionSearchTerm(e.target.value); setPromotionPage(1); }} className="h-9 text-sm" />
+          </div>
         </CardHeader>
+        
         <CardContent>
           {isFetchingPromotions ? <div className="text-center py-6 text-muted-foreground animate-pulse">Đang tải...</div> :
-           promotions.length === 0 ? <div className="text-center py-6 text-muted-foreground">{promotionSearchTerm ? "Không tìm thấy." : `Không có KM nào (${filterStatus.toLowerCase()}).`}</div> :
-           (
-            <div className="space-y-3">
-              {promotions.map((promo) => (
-                <div key={promo.id} className={`border rounded-lg p-3 sm:p-4 transition-colors ${!promo.active ? 'opacity-70 bg-gray-50 dark:bg-gray-900/30' : 'hover:bg-muted/30'}`}>
-                  {/* ... (Hiển thị thông tin) ... */}
-                  <div className="flex flex-col sm:flex-row justify-between sm:items-start gap-2 mb-2">
-                      <div> <h3 className="font-semibold text-base">{promo.name}</h3> <p className="text-xs text-muted-foreground mt-0.5">{promo.description || "Không có mô tả"}</p> </div>
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${promo.active ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"}`}> {promo.active ? "Hoạt động" : "Ngừng HĐ"} </span>
+            promotions.length === 0 ? <div className="text-center py-6 text-muted-foreground">{promotionSearchTerm ? "Không tìm thấy." : `Không có KM nào (${filterStatus.toLowerCase()}).`}</div> :
+              (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/30">
+                        {/* Cập nhật Thead (Đã thêm cột "Sản phẩm") */}
+                        <tr className="border-b">
+                          <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Tên Khuyến Mãi</th>
+                          <th className="text-right py-2.5 px-3 font-semibold text-foreground/80">Giảm (%)</th>
+                          <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Bắt đầu</th>
+                          <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Kết thúc</th>
+                          <th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Sản phẩm</th>
+                          <th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Trạng thái</th>
+                          {canEdit && (
+                            <th className="text-center py-2.5 px-3 font-semibold text-foreground/80 w-[100px]">Hành động</th>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {promotions.map((promo) => (
+                          <tr key={promo.id} className={`border-b last:border-b-0 hover:bg-muted/20 transition-colors ${!promo.active ? 'opacity-60 bg-gray-50 dark:bg-gray-900/30' : ''}`}>
+                            
+                            {/* Cập nhật Tbody (Đã thêm cột "productCount") */}
+                            
+                            {/* Dữ liệu */}
+                            <td className="py-2 px-3 font-medium text-foreground">
+                              {promo.name}
+                              {promo.description && (
+                                <p className="text-xs text-muted-foreground font-normal truncate max-w-xs">{promo.description}</p>
+                              )}
+                            </td>
+                            <td className="py-2 px-3 text-right font-medium">{promo.discountValue}%</td>
+                            <td className="py-2 px-3 text-muted-foreground">{promo.startDate}</td>
+                            <td className="py-2 px-3 text-muted-foreground">{promo.endDate}</td>
+                            
+                            {/* Cột Product Count MỚI */}
+                            <td className="py-2 px-3 text-center text-muted-foreground">
+                              {promo.productCount}
+                            </td>
+                            
+                            {/* Trạng thái (Badge) */}
+                            <td className="py-2 px-3 text-center">
+                              <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${promo.active ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"}`}>
+                                {promo.active ? "Hoạt động" : "Ngừng HĐ"}
+                              </span>
+                            </td>
+                            
+                            {/* Nút hành động (Cập nhật logic nút Xóa) */}
+                            {canEdit && (
+                              <td className="py-2 px-3">
+                                <div className="flex gap-1.5 justify-center">
+                                  <Button variant="outline" size="icon" className="w-7 h-7" title="Sửa" onClick={() => handleEditPromotion(promo)}><Edit2 size={14} /></Button>
+                                  {promo.active ? (
+                                    <Button variant="outline" size="icon" className="w-7 h-7 text-destructive border-destructive hover:bg-destructive/10" title="Ngừng hoạt động" onClick={() => setDialogState({ isOpen: true, action: 'delete', promotion: promo })}>
+                                      <Trash2 size={14} />
+                                    </Button>
+                                  ) : (
+                                    <>
+                                      <Button variant="outline" size="icon" className="w-7 h-7 text-green-600 border-green-600 hover:bg-green-100/50" title="Kích hoạt lại" onClick={() => setDialogState({ isOpen: true, action: 'reactivate', promotion: promo })}>
+                                        <RotateCcw size={14} />
+                                      </Button>
+                                      
+                                      {/* Logic MỚI: Chỉ hiện nút xóa khi productCount == 0 */}
+                                      {promo.productCount === 0 && (
+                                        <Button variant="outline" size="icon" className="w-7 h-7 text-red-700 border-red-700 hover:bg-red-100/50 dark:text-red-500 dark:border-red-500 dark:hover:bg-red-900/30" title="XÓA VĨNH VIỄN" onClick={() => setDialogState({ isOpen: true, action: 'permanentDelete', promotion: promo })}>
+                                          <XCircle size={14} />
+                                        </Button>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1 text-sm border-t pt-2 mt-2">
-                    <div><span className="text-muted-foreground text-xs">Giảm:</span> {promo.discountValue}%</div>
-                    <div><span className="text-muted-foreground text-xs">Từ:</span> {promo.startDate}</div>
-                    <div><span className="text-muted-foreground text-xs">Đến:</span> {promo.endDate}</div>
-                  </div>
-                  
-                  {/* --- SỬA 11: Ẩn các nút nếu là STAFF --- */}
-                  {canEdit && (
-                    <div className="flex gap-1.5 mt-3 justify-end sm:justify-start">
-                      <Button variant="outline" size="icon" className="w-7 h-7" title="Sửa" onClick={() => handleEditPromotion(promo)}><Edit2 size={14} /></Button>
-                      
-                      {/* --- LOGIC NÚT XÓA/KÍCH HOẠT LẠI --- */}
-                      {promo.active ? (
-                          <Button variant="outline" size="icon" className="w-7 h-7 text-destructive border-destructive hover:bg-destructive/10" title="Ngừng hoạt động" onClick={() => handleDeletePromotion(promo.id)}><Trash2 size={14} /></Button>
-                      ) : (
-                          <Button variant="outline" size="icon" className="w-7 h-7 text-green-600 border-green-600 hover:bg-green-100/50" title="Kích hoạt lại" onClick={() => handleReactivatePromotion(promo)}>
-                              <RotateCcw size={14} /> 
-                          </Button>
-                      )}
-                    </div>
-                  )}
-                  {/* --- KẾT THÚC SỬA 11 --- */}
-                </div>
-              ))}
-            </div>
-           )}
-          {totalPromotionPages > 1 && (<div className="flex justify-center pt-4"><Pagination currentPage={promotionPage} totalPages={totalPromotionPages} onPageChange={setPromotionPage} /></div>)}
+                  {/* Phân trang */}
+                  {totalPromotionPages > 1 && (<div className="flex justify-center pt-4"><Pagination currentPage={promotionPage} totalPages={totalPromotionPages} onPageChange={setPromotionPage} /></div>)}
+                </>
+              )}
         </CardContent>
+
+        {/* Dialog Xác nhận */}
+        <AlertDialog open={dialogState.isOpen} onOpenChange={(open) => !open && closeDialog()}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {dialogState.action === 'delete' && "Xác nhận ngừng hoạt động?"}
+                {dialogState.action === 'reactivate' && "Xác nhận kích hoạt lại?"}
+                {dialogState.action === 'permanentDelete' && "Xác nhận XÓA VĨNH VIỄN?"}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {dialogState.action === 'delete' && `Bạn có chắc muốn ngừng hoạt động KM "${dialogState.promotion?.name}"?`}
+                {dialogState.action === 'reactivate' && `Bạn có chắc muốn kích hoạt lại KM "${dialogState.promotion?.name}"?`}
+                {dialogState.action === 'permanentDelete' && (
+                  <span className="text-red-600 font-medium dark:text-red-400">
+                    Hành động này KHÔNG THỂ hoàn tác. KM " {dialogState.promotion?.name}" sẽ bị xóa vĩnh viễn (vì không còn sản phẩm nào áp dụng).
+                  </span>
+                )}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={closeDialog}>Hủy</AlertDialogCancel>
+              <AlertDialogAction asChild>
+                <Button
+                  onClick={handleConfirmAction}
+                  variant={ (dialogState.action === 'delete' || dialogState.action === 'permanentDelete') ? "destructive" : "default" }
+                >
+                  {dialogState.action === 'delete' && "Xác nhận ngừng HĐ"}
+                  {dialogState.action === 'reactivate' && "Xác nhận kích hoạt"}
+                  {dialogState.action === 'permanentDelete' && "Xóa vĩnh viễn"}
+                </Button>
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        
       </Card>
     </div>
   )

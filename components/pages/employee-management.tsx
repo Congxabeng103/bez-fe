@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Mail, Phone, Edit2, Trash2, Plus, RotateCcw } from "lucide-react";
+import { Search, Mail, Phone, Edit2, Trash2, Plus, RotateCcw, XCircle } from "lucide-react"; // <-- THÊM XCircle
 import { useAuthStore } from "@/lib/authStore";
 import { Pagination } from "@/components/store/pagination";
 import { toast } from "sonner";
@@ -12,39 +12,58 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { manualFetchApi } from "@/lib/api"; // <-- 1. IMPORT HÀM FETCH CHUNG
+import { manualFetchApi } from "@/lib/api";
+// THÊM: Import Alert Dialog
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const ITEMS_PER_PAGE = 5;
 
-// --- Interfaces (Đã bỏ 'position') ---
+// --- Interfaces (Đã thêm activityCount) ---
 interface EmployeeResponse {
   id: number;
   name: string; // Full Name
   email: string;
-  phone: string;
+  phone: string | null; // <-- SỬA: Cho phép null
   joinDate: string; 
   active: boolean;
   role: string;
+  activityCount: number; // <-- THÊM (từ UserResponseDTO)
 }
 
 interface EmployeeFormData {
   firstName: string; 
   lastName: string;
   email: string;
-  phone: string;
+  phone: string | null; // <-- SỬA: Cho phép null
   active: boolean;
   password?: string;
-  role: string; // <-- Đổi 'position' thành 'role'
+  role: string;
+}
+
+// Kiểu cho state lỗi
+type EmployeeFormErrors = Partial<Record<keyof EmployeeFormData, string>>;
+
+// Kiểu cho state của Dialog
+interface DialogState {
+  isOpen: boolean;
+  action: 'delete' | 'reactivate' | 'permanentDelete' | null;
+  employee: EmployeeResponse | null;
 }
 
 // --- Component ---
 export function EmployeeManagement() {
-  // --- SỬA 2: Lấy user và quyền ---
   const { user } = useAuthStore();
   const roles = user?.roles || [];
-  // (Chỉ Admin mới có quyền truy cập trang này)
   const isAdmin = roles.includes("ADMIN");
-  // --- KẾT THÚC SỬA 2 ---
   
   // --- States ---
   const [employees, setEmployees] = useState<EmployeeResponse[]>([]);
@@ -57,27 +76,36 @@ export function EmployeeManagement() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   
-  // --- SỬA 3: State mặc định (Bỏ 'position', dùng 'role') ---
   const [formData, setFormData] = useState<EmployeeFormData>({
-    firstName: "", lastName: "", email: "", phone: "", 
-    active: true, password: "", role: "STAFF" // Mặc định tạo STAFF
+    firstName: "", lastName: "", email: "", phone: null, 
+    active: true, password: "", role: "STAFF"
   });
-  const [formError, setFormError] = useState<string | null>(null);
+  
+  // === SỬA: State lỗi (Inline validation) ===
+  const [formErrors, setFormErrors] = useState<EmployeeFormErrors>({});
+  const [apiError, setApiError] = useState<string | null>(null);
+  
+  // === THÊM: State quản lý dialog xác nhận ===
+  const [dialogState, setDialogState] = useState<DialogState>({
+    isOpen: false,
+    action: null,
+    employee: null,
+  });
 
-  // --- API Fetching (Đã sửa dùng manualFetchApi) ---
+  // --- API Fetching ---
   const fetchEmployees = useCallback(async () => {
-    if (!isAdmin) return; // Nếu không phải Admin, không fetch
-    
+    if (!isAdmin) return;
     setIsFetching(true);
-    const url = new URL(`/v1/users/employees`, "http://dummybase.com"); // (Base URL chỉ để tạo object)
-    url.searchParams.append("page", (currentPage - 1).toString());
-    url.searchParams.append("size", ITEMS_PER_PAGE.toString());
-    url.searchParams.append("sort", "createdAt,desc"); 
-    url.searchParams.append("status", filterStatus); 
-    if (searchTerm) url.searchParams.append("search", searchTerm);
+    
+    const query = new URLSearchParams();
+    query.append("page", (currentPage - 1).toString());
+    query.append("size", ITEMS_PER_PAGE.toString());
+    query.append("sort", "createdAt,desc"); 
+    query.append("status", filterStatus); 
+    if (searchTerm) query.append("search", searchTerm);
     
     try {
-      const result = await manualFetchApi(url.pathname + url.search);
+      const result = await manualFetchApi(`/v1/users/employees?${query.toString()}`);
       if (result.status === 'SUCCESS' && result.data) {
         setEmployees(result.data.content);
         setTotalPages(result.data.totalPages);
@@ -86,35 +114,54 @@ export function EmployeeManagement() {
       toast.error(`Lỗi: ${err.message}`); 
     }
     finally { setIsFetching(false); }
-  }, [isAdmin, currentPage, searchTerm, filterStatus]); // (Thêm 'isAdmin')
+  }, [isAdmin, currentPage, searchTerm, filterStatus]);
 
   useEffect(() => { 
-    // Chỉ fetch khi là Admin
-    if (isAdmin) {
-      fetchEmployees(); 
-    }
+    if (isAdmin) { fetchEmployees(); }
   }, [fetchEmployees, isAdmin]);
 
   // --- Handlers ---
-  // --- SỬA 5: resetForm (Bỏ 'position', dùng 'role') ---
   const resetForm = () => {
-    setShowForm(false); setEditingId(null); setFormError(null);
-    setFormData({ firstName: "", lastName: "", email: "", phone: "", active: true, password: "", role: "STAFF" });
+    setShowForm(false); setEditingId(null); 
+    setApiError(null);
+    setFormErrors({});
+    setFormData({ firstName: "", lastName: "", email: "", phone: null, active: true, password: "", role: "STAFF" });
+  }
+  
+  // === THÊM: Hàm Validate Mới ===
+  const validateForm = (): EmployeeFormErrors => {
+    const newErrors: EmployeeFormErrors = {};
+    const { firstName, lastName, email, role, password } = formData;
+    if (!firstName.trim()) newErrors.firstName = "Tên là bắt buộc.";
+    if (!lastName.trim()) newErrors.lastName = "Họ (và tên đệm) là bắt buộc.";
+    if (!email.trim()) {
+        newErrors.email = "Email không được để trống.";
+    } else if (!/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(email.trim())) {
+        newErrors.email = "Địa chỉ email không hợp lệ.";
+    }
+    if (!role) newErrors.role = "Vai trò là bắt buộc.";
+
+    if (!editingId) {
+        if (!password || password.length < 6) {
+            newErrors.password = "Mật khẩu (tối thiểu 6 ký tự) là bắt buộc.";
+        }
+    }
+    return newErrors;
   }
 
-  // --- SỬA 6: handleSubmit (Bỏ 'position', dùng 'role') ---
+  // === SỬA: handleSubmit (Tích hợp Inline Validation) ===
   const handleSubmit = async () => {
-    if (!isAdmin) { // (Bảo vệ lần nữa)
-      toast.error("Bạn không có quyền thực hiện hành động này.");
+    if (!isAdmin) { toast.error("Bạn không có quyền."); return; }
+    
+    setApiError(null);
+    setFormErrors({});
+
+    const validationErrors = validateForm();
+    if (Object.keys(validationErrors).length > 0) {
+      setFormErrors(validationErrors);
+      toast.error("Vui lòng kiểm tra lại các trường có lỗi.");
       return;
     }
-    setFormError(null);
-
-    // Validate
-    if (!formData.firstName.trim()) return setFormError("Tên là bắt buộc.");
-    if (!formData.lastName.trim()) return setFormError("Họ (và tên đệm) là bắt buộc.");
-    if (!formData.email.trim()) return setFormError("Email không được để trống.");
-    if (!formData.role) return setFormError("Vai trò là bắt buộc.");
 
     const isEditing = !!editingId;
     let url = "";
@@ -122,33 +169,25 @@ export function EmployeeManagement() {
     let requestBody: any = {};
 
     if (isEditing) {
-        // --- LOGIC CẬP NHẬT (PUT) ---
         url = `/v1/users/${editingId}`;
         method = "PUT";
-        // Gửi đi DTO (UserRequestDTO) - Không có 'role'
-        requestBody = {
+        requestBody = { // UserRequestDTO
             firstName: formData.firstName.trim(),
             lastName: formData.lastName.trim(),
             email: formData.email.trim(),
-            phone: formData.phone.trim() || null,
+            phone: formData.phone ? formData.phone.trim() : null,
             active: formData.active,
-            // (Không gửi role khi cập nhật)
         };
     } else {
-        // --- LOGIC TẠO MỚI (POST) ---
-        if (!formData.password || formData.password.length < 6) return setFormError("Mật khẩu (tối thiểu 6 ký tự) là bắt buộc.");
-        
         url = `/v1/users/employees`;
         method = "POST";
-
-        // Gửi đi DTO (EmployeeRequestDTO) - Có 'role'
-        requestBody = {
+        requestBody = { // EmployeeRequestDTO
             firstName: formData.firstName.trim(),
             lastName: formData.lastName.trim(),
             email: formData.email.trim(),
             password: formData.password,
-            phone: formData.phone.trim() || null,
-            role: formData.role, // <-- Gửi 'role'
+            phone: formData.phone ? formData.phone.trim() : null,
+            role: formData.role,
         };
     }
 
@@ -166,21 +205,20 @@ export function EmployeeManagement() {
         throw new Error(result.message || (isEditing ? "Cập nhật thất bại" : "Tạo thất bại"));
       }
     } catch (err: any) {
+      // === SỬA: Gán lỗi vào đúng ô Email ===
       if (err.message && (err.message.toLowerCase().includes("đã tồn tại") || err.message.toLowerCase().includes("duplicate"))) {
-          setFormError(err.message);
+          setFormErrors({ email: err.message }); // Lỗi trùng email
           toast.error(err.message);
       } else {
           toast.error(`Lỗi: ${err.message}`);
-          setFormError(err.message);
+          setApiError(err.message); // Lỗi API chung
       }
     }
   };
 
-  // --- SỬA 7: handleEdit (Bỏ 'position', dùng 'role') ---
+  // handleEdit (Đã cập nhật reset lỗi)
   const handleEdit = (employee: EmployeeResponse) => {
-    if (!isAdmin) return; // (Bảo vệ lần nữa)
-    
-    // Tách fullName
+    if (!isAdmin) return;
     const fullName = employee.name || "";
     const lastSpaceIndex = fullName.lastIndexOf(' ');
     let firstName = "";
@@ -190,80 +228,80 @@ export function EmployeeManagement() {
         firstName = fullName.substring(lastSpaceIndex + 1);
         lastName = fullName.substring(0, lastSpaceIndex);
     }
-
     setFormData({
         firstName: firstName,
         lastName: lastName,
         email: employee.email,
-        phone: employee.phone || "",
+        phone: employee.phone || null,
         active: employee.active,
         password: "", 
-        role: employee.role // <-- Lưu lại role
+        role: employee.role
     });
     setEditingId(employee.id);
     setShowForm(true);
-    setFormError(null);
+    setApiError(null);
+    setFormErrors({});
   };
   
-  // Xóa (Soft Delete)
-  const handleDelete = async (id: number) => { 
-    if (!isAdmin) return; // (Bảo vệ)
-    if (!confirm("Ngừng hoạt động nhân viên này?")) return;
-    
+  // === THAY THẾ: Logic Dialog (Thay cho handleDelete, handleReactivate) ===
+  const closeDialog = () => {
+    setDialogState({ isOpen: false, action: null, employee: null });
+  };
+
+  const handleConfirmAction = async () => {
+    const { action, employee } = dialogState;
+    if (!employee || !isAdmin) { toast.error("Hành động không hợp lệ."); closeDialog(); return; };
+
     try {
-      const result = await manualFetchApi(`/v1/users/${id}`, { method: "DELETE" });
-      if (result.status === 'SUCCESS') {
-        toast.success("Đã ngừng hoạt động nhân viên.");
-        fetchEmployees();
-      } else throw new Error(result.message || "Xóa thất bại");
-    } catch (err: any) { 
-      toast.error(`Lỗi: ${err.message}`); 
-    }
-  };
-  
-  // --- SỬA 8: handleReactivate (Bỏ 'position') ---
-  const handleReactivate = async (employee: EmployeeResponse) => {
-      if (!isAdmin) return; // (Bảo vệ)
-      if (!confirm(`Kích hoạt lại nhân viên "${employee.name}"?`)) return;
-      const url = `/v1/users/${employee.id}`;
-
-      // Tách fullName
-      const fullName = employee.name || "";
-      const lastSpaceIndex = fullName.lastIndexOf(' ');
-      let firstName = "";
-      let lastName = "";
-      if (lastSpaceIndex === -1) { firstName = fullName; } 
-      else {
-          firstName = fullName.substring(lastSpaceIndex + 1);
-          lastName = fullName.substring(0, lastSpaceIndex);
-      }
-
-      // Gửi UserRequestDTO
-      const requestBody = { 
-          firstName: firstName,
-          lastName: lastName,
-          email: employee.email, 
-          phone: employee.phone,
-          active: true // Set active = true
-          // (Không gửi position)
-      };
+      // 1. Logic cho "Ngừng hoạt động"
+      if (action === 'delete') {
+        const result = await manualFetchApi(`/v1/users/${employee.id}`, { method: "DELETE" });
+        if (result.status === 'SUCCESS') {
+          toast.success("Đã ngừng hoạt động nhân viên.");
+          fetchEmployees();
+        } else throw new Error(result.message || "Ngừng hoạt động thất bại");
+      } 
       
-      try {
-        const result = await manualFetchApi(url, { 
-          method: "PUT", 
-          body: JSON.stringify(requestBody) 
-        });
-        
+      // 2. Logic cho "Kích hoạt lại"
+      else if (action === 'reactivate') {
+        const url = `/v1/users/${employee.id}`;
+        const fullName = employee.name || "";
+        const lastSpaceIndex = fullName.lastIndexOf(' ');
+        let firstName = "";
+        let lastName = "";
+        if (lastSpaceIndex === -1) { firstName = fullName; } 
+        else {
+            firstName = fullName.substring(lastSpaceIndex + 1);
+            lastName = fullName.substring(0, lastSpaceIndex);
+        }
+        const requestBody = { 
+            firstName: firstName, lastName: lastName,
+            email: employee.email, phone: employee.phone,
+            active: true
+        };
+        const result = await manualFetchApi(url, { method: "PUT", body: JSON.stringify(requestBody) });
         if (result.status === 'SUCCESS') {
           toast.success("Kích hoạt lại thành công!");
           fetchEmployees();
         } else throw new Error(result.message || "Kích hoạt thất bại");
-      } catch (err: any) { 
-        toast.error(`Lỗi: ${err.message}`); 
+      } 
+      
+      // 3. Logic cho "Xóa vĩnh viễn"
+      else if (action === 'permanentDelete') {
+        // Backend sẽ kiểm tra (activityCount > 0)
+        const result = await manualFetchApi(`/v1/users/permanent-delete/${employee.id}`, { method: "DELETE" });
+        if (result.status === 'SUCCESS') {
+          toast.success("Đã xóa vĩnh viễn nhân viên.");
+          fetchEmployees();
+        } else throw new Error(result.message || "Xóa vĩnh viễn thất bại");
       }
+    } catch (err: any) {
+      toast.error(`Lỗi: ${err.message}`);
+    } finally {
+      closeDialog();
+    }
   };
   
-  // Xử lý đổi Tab
   const handleTabChange = (newStatus: string) => { 
     setFilterStatus(newStatus);
     setCurrentPage(1);
@@ -272,17 +310,14 @@ export function EmployeeManagement() {
   };
 
   // --- JSX ---
-  
-  // --- SỬA 9: Nếu không phải Admin, hiển thị "Từ chối" ---
   if (!isAdmin) {
     return (
       <div className="p-4 sm:p-6 space-y-6 text-center">
-         <h1 className="text-2xl sm:text-3xl font-bold text-destructive">Truy cập bị từ chối</h1>
-         <p className="text-muted-foreground">Bạn không có quyền 'ADMIN' để xem trang này.</p>
+        <h1 className="text-2xl sm:text-3xl font-bold text-destructive">Truy cập bị từ chối</h1>
+        <p className="text-muted-foreground">Bạn không có quyền 'ADMIN' để xem trang này.</p>
       </div>
     )
   }
-  // --- KẾT THÚC SỬA 9 ---
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
@@ -291,12 +326,13 @@ export function EmployeeManagement() {
           <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Quản lý nhân viên</h1>
           <p className="text-sm text-muted-foreground mt-1">Quản lý thông tin nhân viên (ADMIN, MANAGER, STAFF)</p>
         </div>
-         <Button onClick={() => { resetForm(); setShowForm(true); setEditingId(null); }} className="gap-2" size="sm"> <Plus size={16} /> Thêm nhân viên </Button>
+        <Button onClick={() => { resetForm(); setShowForm(true); setEditingId(null); }} className="gap-2" size="sm"> <Plus size={16} /> Thêm nhân viên </Button>
       </div>
 
-      {formError && ( <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md border border-destructive/30 animate-shake">{formError}</div> )}
+      {/* Lỗi API chung */}
+      {apiError && ( <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md border border-destructive/30 animate-shake">{apiError}</div> )}
 
-      {/* --- SỬA 10: Form (Thay 'position' bằng 'role') --- */}
+      {/* Form (Đã cập nhật Inline Validation) */}
       {showForm && (
         <Card className="border-blue-500/50 shadow-md animate-fade-in">
           <CardHeader>
@@ -304,68 +340,66 @@ export function EmployeeManagement() {
           </CardHeader>
           <CardContent className="pt-6 space-y-4">
             
-            {/* Tách Họ và Tên */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="lastName" className="text-xs text-muted-foreground">Họ (và tên đệm) *</Label>
-                <Input id="lastName" placeholder="Vd: Đỗ Thành" value={formData.lastName || ""} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} className="mt-1.5"/>
+                <Label htmlFor="lastName" className={`text-xs ${formErrors.lastName ? 'text-destructive' : 'text-muted-foreground'}`}>Họ (và tên đệm) *</Label>
+                <Input id="lastName" placeholder="Vd: Đỗ Thành" value={formData.lastName || ""} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} className={`mt-1.5 ${formErrors.lastName ? 'border-destructive' : ''}`}/>
+                {formErrors.lastName && <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.lastName}</p>}
               </div>
               <div>
-                <Label htmlFor="firstName" className="text-xs text-muted-foreground">Tên *</Label>
-                <Input id="firstName" placeholder="Vd: Công" value={formData.firstName || ""} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} className="mt-1.5"/>
+                <Label htmlFor="firstName" className={`text-xs ${formErrors.firstName ? 'text-destructive' : 'text-muted-foreground'}`}>Tên *</Label>
+                <Input id="firstName" placeholder="Vd: Công" value={formData.firstName || ""} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} className={`mt-1.5 ${formErrors.firstName ? 'border-destructive' : ''}`}/>
+                {formErrors.firstName && <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.firstName}</p>}
               </div>
             </div>
-            {/* Kết thúc Sửa Tên */}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                <div>
-                 <Label htmlFor="email" className="text-xs text-muted-foreground">Email *</Label>
-                 <Input id="email" placeholder="Email *" type="email" value={formData.email || ""} onChange={(e) => setFormData({ ...formData, email: e.target.value })} className="mt-1.5"/>
+                <Label htmlFor="email" className={`text-xs ${formErrors.email ? 'text-destructive' : 'text-muted-foreground'}`}>Email *</Label>
+                <Input id="email" placeholder="Email *" type="email" value={formData.email || ""} onChange={(e) => setFormData({ ...formData, email: e.target.value })} className={`mt-1.5 ${formErrors.email ? 'border-destructive' : ''}`}/>
+                {formErrors.email && <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.email}</p>}
                </div>
                <div>
-                 <Label htmlFor="phone" className="text-xs text-muted-foreground">Số điện thoại</Label>
-                 <Input id="phone" placeholder="Số điện thoại" value={formData.phone || ""} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} className="mt-1.5"/>
+                <Label htmlFor="phone" className="text-xs text-muted-foreground">Số điện thoại</Label>
+                <Input id="phone" placeholder="Số điện thoại" value={formData.phone || ""} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} className="mt-1.5"/>
                </div>
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <Label htmlFor="role" className="text-xs text-muted-foreground">Vai trò *</Label>
-                    {/* Khi Sửa, không cho đổi Role */}
-                    {editingId ? (
-                        <Input 
-                            id="role" 
-                            value={formData.role} 
-                            disabled 
-                            className="mt-1.5 bg-muted/50"
-                        />
-                    ) : (
-                        // Khi Tạo mới, cho phép chọn
-                        <Select value={formData.role || "STAFF"} onValueChange={(value) => setFormData({ ...formData, role: value })}>
-                            <SelectTrigger id="role" className="mt-1.5"><SelectValue placeholder="Chọn vai trò *" /></SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="STAFF">Nhân viên (STAFF)</SelectItem>
-                                <SelectItem value="MANAGER">Quản lý (MANAGER)</SelectItem>
-                                <SelectItem value="ADMIN">Quản trị viên (ADMIN)</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    )}
-                </div>
-                
-                {!editingId && (
-                    <div>
-                        <Label htmlFor="password" className="text-xs text-muted-foreground">Mật khẩu *</Label>
-                        <Input id="password" placeholder="Mật khẩu (tối thiểu 6 ký tự) *" type="password" value={formData.password || ""} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className="mt-1.5"/>
-                    </div>
+               <div>
+                <Label htmlFor="role" className={`text-xs ${formErrors.role ? 'text-destructive' : 'text-muted-foreground'}`}>Vai trò * (Không thể sửa)</Label>
+                {/* Luôn khóa Role khi sửa, chỉ cho chọn khi tạo */}
+                {editingId ? (
+                    <Input id="role" value={formData.role} disabled className="mt-1.5 bg-muted/50"/>
+                ) : (
+                    <Select value={formData.role || "STAFF"} onValueChange={(value) => setFormData({ ...formData, role: value })}>
+                        <SelectTrigger id="role" className={`mt-1.5 ${formErrors.role ? 'border-destructive' : ''}`}><SelectValue placeholder="Chọn vai trò *" /></SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="STAFF">Nhân viên (STAFF)</SelectItem>
+                            <SelectItem value="MANAGER">Quản lý (MANAGER)</SelectItem>
+                            <SelectItem value="ADMIN">Quản trị viên (ADMIN)</SelectItem>
+                        </SelectContent>
+                    </Select>
                 )}
+                {formErrors.role && !editingId && <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.role}</p>}
+               </div>
+               
+               {/* Chỉ hiện mật khẩu khi tạo mới */}
+               {!editingId && (
+                   <div>
+                    <Label htmlFor="password" className={`text-xs ${formErrors.password ? 'text-destructive' : 'text-muted-foreground'}`}>Mật khẩu * (Tối thiểu 6 ký tự)</Label>
+                    <Input id="password" placeholder="Nhập mật khẩu" type="password" value={formData.password || ""} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className={`mt-1.5 ${formErrors.password ? 'border-destructive' : ''}`}/>
+                    {formErrors.password && <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.password}</p>}
+                   </div>
+               )}
             </div>
 
-            {/* Checkbox Active (Chỉ enable khi Sửa) */}
+            {/* Chỉ hiện checkbox Active khi sửa */}
             {editingId && (
-                <div className="flex items-center gap-2">
-                    <Checkbox id="empActiveForm" checked={formData.active} onCheckedChange={(checked) => setFormData({ ...formData, active: Boolean(checked) })}/>
-                    <Label htmlFor="empActiveForm" className="text-sm">Đang hoạt động</Label>
-                </div>
+               <div className="flex items-center gap-2">
+                   <Checkbox id="empActiveForm" checked={formData.active} onCheckedChange={(checked) => setFormData({ ...formData, active: Boolean(checked) })}/>
+                   <Label htmlFor="empActiveForm" className="text-sm">Đang hoạt động</Label>
+               </div>
             )}
             
             <div className="flex gap-3 pt-3 border-t">
@@ -375,9 +409,8 @@ export function EmployeeManagement() {
           </CardContent>
         </Card>
       )}
-      {/* --- KẾT THÚC SỬA FORM --- */}
 
-      {/* --- Bảng Danh sách Nhân viên (Sửa 'position' thành 'role') --- */}
+      {/* --- Bảng Danh sách Nhân viên (ĐÃ CẬP NHẬT) --- */}
       <Card className="shadow-sm">
         <CardHeader>
           <CardTitle className="text-xl font-semibold">Danh sách nhân viên</CardTitle>
@@ -395,58 +428,108 @@ export function EmployeeManagement() {
         </CardHeader>
         <CardContent>
           {isFetching ? <div className="text-center py-6 text-muted-foreground animate-pulse">Đang tải...</div> :
-           employees.length === 0 ? <div className="text-center py-6 text-muted-foreground">{searchTerm ? "Không tìm thấy." : `Không có nhân viên nào (${filterStatus.toLowerCase()}).`}</div> :
-           (
-            <>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/30">
-                    <tr className="border-b">
-                      <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Tên nhân viên</th>
-                      <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Liên hệ</th>
-                      <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Vai trò</th>
-                      <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Ngày tham gia</th>
-                      <th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Trạng thái</th>
-                      <th className="text-center py-2.5 px-3 font-semibold text-foreground/80 w-[100px]">Hành động</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {employees.map((employee) => (
-                      <tr key={employee.id} className={`border-b last:border-b-0 hover:bg-muted/20 transition-colors ${!employee.active ? 'opacity-60 bg-gray-50 dark:bg-gray-900/30' : ''}`}>
-                        <td className="py-2 px-3 font-medium text-foreground">{employee.name}</td>
-                        <td className="py-2 px-3 text-muted-foreground text-xs">
-                          <div className="flex items-center gap-1.5"><Mail size={14} /> <span>{employee.email}</span></div>
-                          <div className="flex items-center gap-1.5 mt-1"><Phone size={14} /> <span>{employee.phone || "-"}</span></div>
-                        </td>
-                        {/* Sửa 'position' thành 'role' */}
-                        <td className="py-2 px-3 font-medium">{employee.role}</td> 
-                        <td className="py-2 px-3 text-muted-foreground">{new Date(employee.joinDate).toLocaleDateString('vi-VN')}</td>
-                        <td className="py-2 px-3 text-center">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${employee.active ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"}`}>
-                            {employee.active ? "Hoạt động" : "Ngừng HĐ"}
-                          </span>
-                        </td>
-                        <td className="py-2 px-3">
-                           <div className="flex gap-1.5 justify-center">
+            employees.length === 0 ? <div className="text-center py-6 text-muted-foreground">{searchTerm ? "Không tìm thấy." : `Không có nhân viên nào (${filterStatus.toLowerCase()}).`}</div> :
+            (
+             <>
+               <div className="overflow-x-auto">
+                 <table className="w-full text-sm">
+                   <thead className="bg-muted/30">
+                     {/* THÊM CỘT "HOẠT ĐỘNG" */}
+                     <tr className="border-b">
+                       <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Tên nhân viên</th>
+                       <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Liên hệ</th>
+                       <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Vai trò</th>
+                       <th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Hoạt động</th>
+                       <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Ngày tham gia</th>
+                       <th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Trạng thái</th>
+                       <th className="text-center py-2.5 px-3 font-semibold text-foreground/80 w-[100px]">Hành động</th>
+                     </tr>
+                   </thead>
+                   <tbody>
+                     {employees.map((employee) => (
+                       <tr key={employee.id} className={`border-b last:border-b-0 hover:bg-muted/20 transition-colors ${!employee.active ? 'opacity-60 bg-gray-50 dark:bg-gray-900/30' : ''}`}>
+                         <td className="py-2 px-3 font-medium text-foreground">{employee.name}</td>
+                         <td className="py-2 px-3 text-muted-foreground text-xs">
+                           <div className="flex items-center gap-1.5"><Mail size={14} /> <span>{employee.email}</span></div>
+                           <div className="flex items-center gap-1.5 mt-1"><Phone size={14} /> <span>{employee.phone || "-"}</span></div>
+                         </td>
+                         <td className="py-2 px-3 font-medium">{employee.role}</td> 
+                         {/* THÊM DỮ LIỆU "activityCount" */}
+                         <td className="py-2 px-3 text-center text-muted-foreground">{employee.activityCount}</td>
+                         <td className="py-2 px-3 text-muted-foreground">{new Date(employee.joinDate).toLocaleDateString('vi-VN')}</td>
+                         <td className="py-2 px-3 text-center">
+                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${employee.active ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"}`}>
+                             {employee.active ? "Hoạt động" : "Ngừng HĐ"}
+                           </span>
+                         </td>
+                         <td className="py-2 px-3">
+                            <div className="flex gap-1.5 justify-center">
                              <Button variant="outline" size="icon" className="w-7 h-7" title="Sửa" onClick={() => handleEdit(employee)}><Edit2 size={14} /></Button>
                              {employee.active ? (
-                               <Button variant="outline" size="icon" className="w-7 h-7 text-destructive border-destructive hover:bg-destructive/10" title="Ngừng hoạt động" onClick={() => handleDelete(employee.id)}><Trash2 size={14} /></Button>
-                             ) : (
-                               <Button variant="outline" size="icon" className="w-7 h-7 text-green-600 border-green-600 hover:bg-green-100/50" title="Kích hoạt lại" onClick={() => handleReactivate(employee)}>
-                                   <RotateCcw size={14} /> 
+                               <Button variant="outline" size="icon" className="w-7 h-7 text-destructive border-destructive hover:bg-destructive/10" title="Ngừng hoạt động" onClick={() => setDialogState({ isOpen: true, action: 'delete', employee: employee })}>
+                                 <Trash2 size={14} />
                                </Button>
+                             ) : (
+                               <>
+                                 <Button variant="outline" size="icon" className="w-7 h-7 text-green-600 border-green-600 hover:bg-green-100/50" title="Kích hoạt lại" onClick={() => setDialogState({ isOpen: true, action: 'reactivate', employee: employee })}>
+                                   <RotateCcw size={14} /> 
+                                 </Button>
+                                 
+                                 {/* THÊM LOGIC NÚT XÓA: Chỉ hiện khi activityCount == 0 */}
+                                 {employee.activityCount === 0 && (
+                                    <Button variant="outline" size="icon" className="w-7 h-7 text-red-700 border-red-700 hover:bg-red-100/50 dark:text-red-500 dark:border-red-500 dark:hover:bg-red-900/30" title="XÓA VĨNH VIỄN" onClick={() => setDialogState({ isOpen: true, action: 'permanentDelete', employee: employee })}>
+                                        <XCircle size={14} />
+                                    </Button>
+                                 )}
+                               </>
                              )}
                            </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {totalPages > 1 && (<div className="flex justify-center pt-4"><Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} /></div>)}
-            </>
-           )}
+                         </td>
+                       </tr>
+                     ))}
+                   </tbody>
+                 </table>
+               </div>
+               {totalPages > 1 && (<div className="flex justify-center pt-4"><Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} /></div>)}
+             </>
+            )}
         </CardContent>
+
+        {/* THÊM: Dialog Xác nhận */}
+        <AlertDialog open={dialogState.isOpen} onOpenChange={(open) => !open && closeDialog()}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {dialogState.action === 'delete' && "Xác nhận ngừng hoạt động?"}
+                {dialogState.action === 'reactivate' && "Xác nhận kích hoạt lại?"}
+                {dialogState.action === 'permanentDelete' && "Xác nhận XÓA VĨNH VIỄN?"}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {dialogState.action === 'delete' && `Bạn có chắc muốn ngừng hoạt động NV "${dialogState.employee?.name}"?`}
+                {dialogState.action === 'reactivate' && `Bạn có chắc muốn kích hoạt lại NV "${dialogState.employee?.name}"?`}
+                {dialogState.action === 'permanentDelete' && (
+                  <span className="text-red-600 font-medium dark:text-red-400">
+                    Hành động này KHÔNG THỂ hoàn tác. NV "${dialogState.employee?.name}" sẽ bị xóa vĩnh viễn (vì không có lịch sử hoạt động).
+                  </span>
+                )}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={closeDialog}>Hủy</AlertDialogCancel>
+              <AlertDialogAction asChild>
+                <Button
+                  onClick={handleConfirmAction}
+                  variant={ (dialogState.action === 'delete' || dialogState.action === 'permanentDelete') ? "destructive" : "default" }
+                >
+                  {dialogState.action === 'delete' && "Xác nhận ngừng HĐ"}
+                  {dialogState.action === 'reactivate' && "Xác nhận kích hoạt"}
+                  {dialogState.action === 'permanentDelete' && "Xóa vĩnh viễn"}
+                </Button>
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        
       </Card>
     </div>
   )

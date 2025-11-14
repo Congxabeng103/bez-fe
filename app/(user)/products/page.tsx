@@ -144,10 +144,11 @@ export default function ProductsPage() {
                 </div>
               </div>
 
-              {/* Category Filter */}
+                            {/* Category Filter */}
               <div className="mb-6">
                 <h3 className="font-semibold mb-4">Danh mục</h3>
-                <div className="space-y-2">
+                {/* Thêm max-h-60 (hoặc 72, 80 tùy bạn) và overflow-y-auto */}
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-2"> {/* <--- ĐÃ SỬA */}
                   <button
                     onClick={() => { setSelectedCategory(null); setCurrentPage(1); }}
                     className={`block w-full text-left px-3 py-2 rounded transition ${

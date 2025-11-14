@@ -193,8 +193,8 @@ export function OrderManagement() {
   const { user } = useAuthStore();
   const roles = user?.roles || [];
   // (Thêm ROLE_ để khớp với Spring Security)
-  const isStaff = roles.includes('STAFF') || roles.includes('ROLE_STAFF');
-  const isManager = roles.includes('MANAGER') || roles.includes('ROLE_MANAGER');
+  const isStaff = roles.includes('STAFF');
+  const isManager = roles.includes('MANAGER');
   const isAdmin = roles.includes('ADMIN'); // (Admin thường không có ROLE_)
   // (isManagerOrAdmin sẽ là biến chính để kiểm soát nút "nguy hiểm")
   const isManagerOrAdmin = isManager || isAdmin;

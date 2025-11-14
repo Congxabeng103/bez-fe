@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Edit2, Trash2, Search, RotateCcw, AlertTriangle, X, GripVertical } from "lucide-react";
+import { Plus, Edit2, Trash2, Search, RotateCcw, AlertTriangle, X, GripVertical, XCircle } from "lucide-react"; // <-- THÊM XCircle
 import { useAuthStore } from "@/lib/authStore";
 import { Pagination } from "@/components/store/pagination";
 import { ImageUpload } from "@/components/store/image-upload";
@@ -14,12 +14,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { manualFetchApi } from "@/lib/api"; // <-- 1. IMPORT HÀM FETCH CHUNG
+import { manualFetchApi } from "@/lib/api";
+// THÊM: Import Alert Dialog
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const ITEMS_PER_PAGE = 5;
 const CLEAR_SELECTION_VALUE = "__CLEAR__"; 
 
-// --- Interfaces (Giữ nguyên) ---
+// --- Interfaces (Đã chuẩn) ---
 interface ProductResponse {
   id: number; 
   name: string; 
@@ -73,18 +84,24 @@ interface ProductDetailResponse {
   attributes: ProductOptionResponse[];
 }
 
+// Kiểu cho state lỗi
+type ProductFormErrors = Partial<Record<keyof ProductFormData, string>>;
+
+// Kiểu cho state của Dialog
+interface DialogState {
+  isOpen: boolean;
+  action: 'delete' | 'reactivate' | 'permanentDelete' | null;
+  product: ProductResponse | null;
+}
+
 // --- Component ---
 export function ProductManagement() {
-  // --- SỬA 2: Lấy user và quyền ---
   const { user } = useAuthStore();
   const roles = user?.roles || [];
-  // (Chỉ Manager và Admin mới có quyền sửa)
   const canEdit = roles.includes("ADMIN") || roles.includes("MANAGER");
-  // (Chỉ Admin mới có quyền xóa vĩnh viễn)
   const isAdmin = roles.includes("ADMIN");
-  // --- KẾT THÚC SỬA 2 ---
 
-  // --- States (Giữ nguyên) ---
+  // --- States ---
   const [products, setProducts] = useState<ProductResponse[]>([]);
   const [totalPages, setTotalPages] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
@@ -99,18 +116,26 @@ export function ProductManagement() {
     options: [], 
   });
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [promotionsBrief, setPromotionsBrief] = useState<PromotionBrief[]>([]);
   const [isLoadingSelectData, setIsLoadingSelectData] = useState(false);
   const [formWarning, setFormWarning] = useState<string | null>(null);
-  const [errors, setErrors] = useState<Partial<Record<keyof ProductFormData, string>>>({});
   
-  // --- SỬA 3: Dùng manualFetchApi ---
+  // === SỬA: State lỗi (Inline validation) ===
+  const [formErrors, setFormErrors] = useState<ProductFormErrors>({});
+  const [apiError, setApiError] = useState<string | null>(null);
+
+  // === THÊM: State quản lý dialog xác nhận ===
+  const [dialogState, setDialogState] = useState<DialogState>({
+    isOpen: false,
+    action: null,
+    product: null,
+  });
+  
+  // --- API Fetching ---
   const fetchProducts = useCallback(async () => {
-    setIsLoading(true); setError(null);
-    
+    setIsLoading(true); setApiError(null);
     const query = new URLSearchParams();
     query.append("page", (currentPage - 1).toString());
     query.append("size", ITEMS_PER_PAGE.toString());
@@ -119,21 +144,20 @@ export function ProductManagement() {
     if (searchTerm) query.append("search", searchTerm);
     
     try {
-      // (Dùng 'any' vì API này public, không cần token)
+      // (Giả sử public, không cần token)
       const result = await manualFetchApi(`/v1/products?${query.toString()}`, {
-         headers: { 'Authorization': '' } // Giả sử hàm fetch của bạn bỏ qua auth nếu token rỗng
+          headers: { 'Authorization': '' } 
       });
       if (result.status === 'SUCCESS' && result.data) {
         setProducts(result.data.content); setTotalPages(result.data.totalPages);
       } else throw new Error(result.message || "Lỗi tải sản phẩm");
     } catch (err: any) { 
-      setError(err.message); 
+      setApiError(err.message); 
       toast.error(`Lỗi tải sản phẩm: ${err.message}`); 
     }
     finally { setIsLoading(false); }
-  }, [currentPage, searchTerm, filterStatus]); // (Đã xóa 'token')
+  }, [currentPage, searchTerm, filterStatus]);
 
-  // --- SỬA 4: Dùng manualFetchApi ---
   const fetchSelectData = useCallback(async () => {
     setIsLoadingSelectData(true);
     let cats: Category[] = [];
@@ -162,21 +186,21 @@ export function ProductManagement() {
         return { cats: [], brs: [], promos: [] }; 
     }
     finally { setIsLoadingSelectData(false); }
-  }, []); // (Đã xóa 'token')
+  }, []);
 
-  // (useEffects - Giữ nguyên)
   useEffect(() => { fetchProducts(); }, [fetchProducts]);
   useEffect(() => { 
-    if (showForm && !editingId) { // Chỉ fetch khi mở form TẠO MỚI
+    if (showForm && !editingId) {
         fetchSelectData(); 
     }
   }, [showForm, editingId, fetchSelectData]);
   
-  // (resetForm - Giữ nguyên)
+  // --- Handlers ---
   const resetForm = () => {
     setShowForm(false); setEditingId(null);
     setFormWarning(null); 
-    setErrors({}); 
+    setApiError(null); // <-- SỬA
+    setFormErrors({}); // <-- SỬA
     setFormData({ 
       name: "", description: "", imageUrl: "", 
       categoryId: "", brandId: "", promotionId: "", 
@@ -185,94 +209,40 @@ export function ProductManagement() {
     });
   }
 
-  // (Các hàm Option (handleAddOption, v.v...) - Giữ nguyên)
+  // (Các hàm Option... giữ nguyên)
   const handleAddOption = () => {
-    if (formData.options.length >= 3) {
-      toast.warning("Chỉ nên tạo tối đa 3 thuộc tính.");
-      return;
-    }
-    setFormData(prev => ({
-      ...prev,
-      options: [
-        ...prev.options,
-        {
-          tempId: Math.random().toString(), 
-          name: "",
-          values: [],
-          newValueInput: "" 
-        }
-      ]
-    }));
+    if (formData.options.length >= 3) { toast.warning("Chỉ nên tạo tối đa 3 thuộc tính."); return; }
+    setFormData(prev => ({ ...prev, options: [ ...prev.options, { tempId: Math.random().toString(), name: "", values: [], newValueInput: "" } ] }));
   };
   const handleRemoveOption = (tempId: string) => {
-    setFormData(prev => ({
-      ...prev,
-      options: prev.options.filter(opt => opt.tempId !== tempId)
-    }));
+    setFormData(prev => ({ ...prev, options: prev.options.filter(opt => opt.tempId !== tempId) }));
   };
   const handleOptionNameChange = (tempId: string, name: string) => {
-    setFormData(prev => ({
-      ...prev,
-      options: prev.options.map(opt =>
-        opt.tempId === tempId ? { ...opt, name: name } : opt
-      )
-    }));
+    setFormData(prev => ({ ...prev, options: prev.options.map(opt => opt.tempId === tempId ? { ...opt, name: name } : opt ) }));
   };
   const handleOptionNewValueChange = (tempId: string, value: string) => {
-    setFormData(prev => ({
-      ...prev,
-      options: prev.options.map(opt =>
-        opt.tempId === tempId ? { ...opt, newValueInput: value } : opt
-      )
-    }));
+    setFormData(prev => ({ ...prev, options: prev.options.map(opt => opt.tempId === tempId ? { ...opt, newValueInput: value } : opt ) }));
   };
   const handleAddValueToOption = (tempId: string) => {
     const option = formData.options.find(opt => opt.tempId === tempId);
     if (!option || !option.newValueInput.trim()) return;
     const newValue = option.newValueInput.trim();
-    if (option.values.some(val => val.value.toLowerCase() === newValue.toLowerCase())) {
-      toast.error("Giá trị này đã tồn tại.");
-      return;
-    }
-    setFormData(prev => ({
-      ...prev,
-      options: prev.options.map(opt =>
-        opt.tempId === tempId
-          ? {
-              ...opt,
-              values: [
-                ...opt.values,
-                { tempId: Math.random().toString(), value: newValue }
-              ],
-              newValueInput: "" 
-            }
-          : opt
-      )
-    }));
+    if (option.values.some(val => val.value.toLowerCase() === newValue.toLowerCase())) { toast.error("Giá trị này đã tồn tại."); return; }
+    setFormData(prev => ({ ...prev, options: prev.options.map(opt => opt.tempId === tempId ? { ...opt, values: [ ...opt.values, { tempId: Math.random().toString(), value: newValue } ], newValueInput: "" } : opt ) }));
   };
   const handleRemoveValueFromOption = (optionTempId: string, valueTempId: string) => {
-    setFormData(prev => ({
-      ...prev,
-      options: prev.options.map(opt =>
-        opt.tempId === optionTempId
-          ? {
-              ...opt,
-              values: opt.values.filter(val => val.tempId !== valueTempId)
-            }
-          : opt
-      )
-    }));
+    setFormData(prev => ({ ...prev, options: prev.options.map(opt => opt.tempId === optionTempId ? { ...opt, values: opt.values.filter(val => val.tempId !== valueTempId) } : opt ) }));
   };
+  // (Kết thúc hàm Option)
 
-  // --- SỬA 5: handleSubmit (Dùng manualFetchApi + Phân quyền) ---
+  // === SỬA: handleSubmit (Tích hợp Inline Validation) ===
   const handleSubmit = async () => {
-    if (!canEdit) { // <-- KIỂM TRA QUYỀN
-      toast.error("Bạn không có quyền thực hiện hành động này.");
-      return;
-    }
+    if (!canEdit) { toast.error("Bạn không có quyền."); return; }
     
-    // ... (Logic validate giữ nguyên)
-    const newErrors: Partial<Record<keyof ProductFormData, string>> = {};
+    setApiError(null);
+    
+    // --- VALIDATE ---
+    const newErrors: ProductFormErrors = {};
     const name = formData.name.trim();
     const categoryId = formData.categoryId;
     if (!name) { newErrors.name = "Tên sản phẩm là bắt buộc."; } 
@@ -290,7 +260,7 @@ export function ProductManagement() {
         if (optionError) break;
       }
     }
-    setErrors(newErrors);
+    setFormErrors(newErrors);
     if (Object.keys(newErrors).length > 0 || optionError) {
       if (!optionError) toast.error("Vui lòng kiểm tra lại thông tin trong form.");
       return;
@@ -335,21 +305,27 @@ export function ProductManagement() {
         throw new Error(result.message || (isEditing ? "Cập nhật thất bại" : "Thêm thất bại"));
       }
     } catch (err: any) { 
-      toast.error(`Thao tác thất bại: ${err.message}`); 
+      // === SỬA: Gán lỗi vào đúng ô Name ===
+      if (err.message && (err.message.toLowerCase().includes("đã tồn tại") || err.message.toLowerCase().includes("duplicate"))) { 
+        setFormErrors({ name: err.message });
+        toast.error(err.message);
+      } else {
+        toast.error(`Thao tác thất bại: ${err.message}`); 
+        setApiError(err.message); // Lỗi API chung
+      }
     }
   };
 
-  // --- SỬA 6: handleEdit (Dùng manualFetchApi + Phân quyền) ---
+  // handleEdit (Đã cập nhật reset lỗi)
   const handleEdit = async (product: ProductResponse) => {
-    if (!canEdit) { // <-- KIỂM TRA QUYỀN
-      toast.error("Bạn không có quyền sửa.");
-      return;
-    }
+    if (!canEdit) { toast.error("Bạn không có quyền sửa."); return; }
     
     setEditingId(product.id);
     setShowForm(true);
     setIsLoading(true); 
     setFormWarning(null);
+    setApiError(null);
+    setFormErrors({});
 
     try {
       const { cats, brs, promos } = await fetchSelectData(); 
@@ -380,7 +356,6 @@ export function ProductManagement() {
         options: optionsFromApi 
       });
 
-      // (Logic warning giữ nguyên)
       let warning = null;
       if (product.categoryId && !cats.some(c => c.id === product.categoryId)) {
           warning = `Danh mục cũ "${product.categoryName}" đã ngừng hoạt động. Vui lòng chọn một danh mục mới.`;
@@ -399,95 +374,73 @@ export function ProductManagement() {
     }
   };
 
-  // --- SỬA 7: handleDelete (Dùng manualFetchApi + Phân quyền) ---
-  const handleDelete = async (id: number) => {
-    if (!canEdit) { // <-- KIỂM TRA QUYỀN
-      toast.error("Bạn không có quyền ngừng hoạt động.");
-      return;
-    }
-    
-    if (!confirm("Ngừng hoạt động sản phẩm này? (Lưu ý: Các biến thể của sản phẩm cũng sẽ bị ẩn theo).")) return;
-    
-    try {
-      const result = await manualFetchApi(`/v1/products/${id}`, { method: "DELETE" });
-      
-      if (result.status === 'SUCCESS') {
-        toast.success("Đã ngừng hoạt động sản phẩm (và các biến thể liên quan).");
-        fetchProducts(); 
-      } else throw new Error(result.message || "Xóa thất bại");
-    } catch (err: any) { toast.error(`Lỗi: ${err.message}`); }
-  };
-
-  // --- SỬA 8: handlePermanentDelete (Dùng manualFetchApi + Phân quyền) ---
-  const handlePermanentDelete = async (id: number) => {
-    if (!isAdmin) { // <-- KIỂM TRA QUYỀN (Chỉ Admin)
-      toast.error("Chỉ Quản trị viên (Admin) mới có quyền xóa vĩnh viễn.");
-      return;
-    }
-    
-    if (!confirm("BẠN CÓ CHẮC CHẮN MUỐN XÓA VĨNH VIỄN SẢN PHẨM NÀY? Sản phẩm này không có biến thể. Hành động này không thể hoàn tác.")) return;
-    
-    try {
-      const result = await manualFetchApi(`/v1/products/${id}/permanent`, { method: "DELETE" });
-      
-      if (result.status === 'SUCCESS') {
-        toast.success("Đã xóa vĩnh viễn sản phẩm.");
-        fetchProducts();
-      } else {
-        throw new Error(result.message || "Xóa vĩnh viễn thất bại");
-      }
-    } catch (err: any) { toast.error(`Lỗi: ${err.message}`); }
+  // === THAY THẾ: Logic Dialog (Thay cho handleDelete, handlePermanentDelete, handleReactivate) ===
+  const closeDialog = () => {
+    setDialogState({ isOpen: false, action: null, product: null });
   };
   
-  // --- SỬA 9: handleReactivate (Dùng manualFetchApi + Phân quyền) ---
-  const handleReactivate = async (product: ProductResponse) => {
-    if (!canEdit) { // <-- KIỂM TRA QUYỀN
-      toast.error("Bạn không có quyền kích hoạt lại.");
-      return;
-    }
-    
-    if (!confirm(`Kích hoạt lại sản phẩm "${product.name}"?`)) return;
-    
-    let localCategories = categories;
-    if (categories.length === 0) {
-      const { cats } = await fetchSelectData();
-      localCategories = cats;
-    }
-    
-    const isCategoryActive = product.categoryId && localCategories.some(c => c.id === product.categoryId);
-    
-    if (!isCategoryActive) {
-        toast.error(`Không thể kích hoạt: Danh mục "${product.categoryName}" đã ngừng hoạt động.`);
-        handleEdit(product); 
-        return; 
-    }
-    
-    const url = `/v1/products/${product.id}`;
-    
-    const requestBody = { 
-        name: product.name, 
-        description: product.description, 
-        imageUrl: product.imageUrl, 
-        categoryId: product.categoryId, 
-        brandId: product.brandId,
-        promotionId: product.promotionId, 
-        active: true 
-    };
-    
+  const handleConfirmAction = async () => {
+    const { action, product } = dialogState;
+    if (!product) return;
+
     try {
-      const result = await manualFetchApi(url, { 
-        method: "PUT", 
-        body: JSON.stringify(requestBody) 
-      });
+      // 1. Logic cho "Ngừng hoạt động"
+      if (action === 'delete') {
+        if (!canEdit) { toast.error("Bạn không có quyền."); return; }
+        const result = await manualFetchApi(`/v1/products/${product.id}`, { method: "DELETE" });
+        if (result.status === 'SUCCESS') {
+          toast.success("Đã ngừng hoạt động sản phẩm (và các biến thể liên quan).");
+          fetchProducts(); 
+        } else throw new Error(result.message || "Xóa thất bại");
+      }
       
-      if (result.status === 'SUCCESS') {
-        toast.success("Kích hoạt lại thành công!");
-        fetchProducts(); 
-      } else throw new Error(result.message || "Kích hoạt thất bại");
-    } catch (err: any) { toast.error(`Lỗi: ${err.message}`); }
+      // 2. Logic cho "Kích hoạt lại"
+      else if (action === 'reactivate') {
+        if (!canEdit) { toast.error("Bạn không có quyền."); return; }
+        
+        // (Kiểm tra logic Category Active giống như hàm cũ của bạn)
+        let localCategories = categories;
+        if (categories.length === 0) {
+          const { cats } = await fetchSelectData();
+          localCategories = cats;
+        }
+        const isCategoryActive = product.categoryId && localCategories.some(c => c.id === product.categoryId);
+        if (!isCategoryActive) {
+            toast.error(`Không thể kích hoạt: Danh mục "${product.categoryName}" đã ngừng hoạt động.`);
+            handleEdit(product); 
+            return; 
+        }
+        
+        const url = `/v1/products/${product.id}`;
+        const requestBody = { 
+            name: product.name, description: product.description, imageUrl: product.imageUrl, 
+            categoryId: product.categoryId, brandId: product.brandId,
+            promotionId: product.promotionId, active: true 
+        };
+        const result = await manualFetchApi(url, { method: "PUT", body: JSON.stringify(requestBody) });
+        if (result.status === 'SUCCESS') {
+          toast.success("Kích hoạt lại thành công!");
+          fetchProducts(); 
+        } else throw new Error(result.message || "Kích hoạt thất bại");
+      }
+      
+      // 3. Logic cho "Xóa vĩnh viễn"
+      else if (action === 'permanentDelete') {
+        if (!isAdmin) { toast.error("Bạn không có quyền."); return; }
+        // Backend sẽ kiểm tra (variantCount > 0)
+        const result = await manualFetchApi(`/v1/products/${product.id}/permanent`, { method: "DELETE" });
+        if (result.status === 'SUCCESS') {
+          toast.success("Đã xóa vĩnh viễn sản phẩm.");
+          fetchProducts();
+        } else throw new Error(result.message || "Xóa vĩnh viễn thất bại");
+      }
+    } catch (err: any) { 
+      toast.error(`Lỗi: ${err.message}`); 
+    } finally {
+      closeDialog();
+    }
   };
-    
-  // (handleTabChange - Giữ nguyên)
+  
   const handleTabChange = (newStatus: string) => {
     setFilterStatus(newStatus);
     setCurrentPage(1);
@@ -500,14 +453,11 @@ export function ProductManagement() {
     <div className="p-4 sm:p-6 space-y-6">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
         <div> <h1 className="text-2xl sm:text-3xl font-bold">Quản lý sản phẩm</h1> <p className="text-sm text-muted-foreground mt-1">Quản lý sản phẩm và các thuộc tính của chúng</p> </div>
-        
-        {/* --- SỬA 10: Ẩn nút "Thêm" nếu là STAFF --- */}
         {canEdit && (
           <Button onClick={() => { resetForm(); setShowForm(true); }} className="gap-1.5 self-start sm:self-center" size="sm"> 
             <Plus size={16} /> Thêm sản phẩm 
           </Button>
         )}
-        {/* --- KẾT THÚC SỬA 10 --- */}
       </div>
       
       {/* Ẩn Form Thêm/Sửa nếu là STAFF */}
@@ -516,6 +466,9 @@ export function ProductManagement() {
           <CardHeader> <CardTitle className="text-lg font-semibold">{editingId ? "Chỉnh sửa sản phẩm" : "Thêm sản phẩm mới"}</CardTitle> </CardHeader>
           <CardContent className="pt-6 space-y-6">
             
+            {/* Lỗi API chung */}
+            {apiError && ( <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md border border-destructive/30 animate-shake">{apiError}</div> )}
+            
             {formWarning && (
               <div className="flex items-start gap-3 p-3 border border-yellow-500/50 bg-yellow-500/10 text-yellow-700 dark:text-yellow-300 text-sm rounded-md">
                 <AlertTriangle size={18} className="flex-shrink-0" />
@@ -523,50 +476,55 @@ export function ProductManagement() {
               </div>
             )}
             
-            {/* Thông tin cơ bản */}
+            {/* 1. Thông tin cơ bản (Đã cập nhật Inline Validation) */}
             <Card>
               <CardHeader className="pb-4">
                 <CardTitle className="text-base font-semibold">1. Thông tin cơ bản</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <ImageUpload value={formData.imageUrl || ""} onChange={(value) => setFormData({ ...formData, imageUrl: value })} label="Hình ảnh sản phẩm (URL)"/>
+                
                 <div className="space-y-1.5"> 
+                  <Label htmlFor="productName" className={`text-xs ${formErrors.name ? 'text-destructive' : 'text-muted-foreground'}`}>Tên sản phẩm *</Label>
                   <Input 
-                    placeholder="Tên sản phẩm *" 
+                    id="productName"
+                    placeholder="Tên sản phẩm" 
                     value={formData.name} 
                     onChange={(e) => {
                       setFormData({ ...formData, name: e.target.value });
-                      if (errors.name) setErrors(prev => ({ ...prev, name: undefined })); 
+                      if (formErrors.name) setFormErrors(prev => ({ ...prev, name: undefined })); 
                     }}
-                    className={errors.name ? "border-destructive focus-visible:ring-destructive" : ""}
+                    className={formErrors.name ? "border-destructive" : ""}
                   />
-                  {errors.name && <p className="text-xs text-destructive">{errors.name}</p>} 
+                  {formErrors.name && <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.name}</p>} 
                 </div>
+                
                 <Textarea placeholder="Mô tả sản phẩm" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })}/>
+                
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* Category Select */}
                   <div className="space-y-1.5"> 
-                    <Label htmlFor="categorySelect" className={`text-xs text-muted-foreground ${errors.categoryId ? 'text-destructive' : ''}`}>
+                    <Label htmlFor="categorySelect" className={`text-xs ${formErrors.categoryId ? 'text-destructive' : 'text-muted-foreground'}`}>
                       Danh mục * (Chỉ hiện mục active)
                     </Label>
                     <Select 
                       value={formData.categoryId} 
                       onValueChange={(value) => {
                         setFormData({ ...formData, categoryId: value });
-                        if (errors.categoryId) setErrors(prev => ({ ...prev, categoryId: undefined }));
+                        if (formErrors.categoryId) setFormErrors(prev => ({ ...prev, categoryId: undefined }));
                       }}
                     >
-                      <SelectTrigger id="categorySelect" className={`mt-1 ${errors.categoryId ? "border-destructive focus:ring-destructive" : ""}`}>
+                      <SelectTrigger id="categorySelect" className={`mt-1 ${formErrors.categoryId ? "border-destructive" : ""}`}>
                         <SelectValue placeholder="Chọn danh mục" />
                       </SelectTrigger>
                       <SelectContent>{isLoadingSelectData ? <div className="p-2 text-sm text-center">Đang tải...</div> : 
                         categories.map(cat => (<SelectItem key={cat.id} value={String(cat.id)}>{cat.name}</SelectItem>))
                       }{!isLoadingSelectData && categories.length === 0 && <div className="p-2 text-sm text-center">Không có DL</div>}</SelectContent>
                     </Select>
-                    {errors.categoryId && <p className="text-xs text-destructive">{errors.categoryId}</p>} 
+                    {formErrors.categoryId && <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.categoryId}</p>} 
                   </div>
                   
-                  {/* Brand Select (ĐÃ SỬA) */}
+                  {/* Brand Select */}
                   <div>
                     <Label htmlFor="brandSelect" className="text-xs text-muted-foreground">Thương hiệu (Chỉ hiện mục active)</Label>
                     <Select 
@@ -582,13 +540,12 @@ export function ProductManagement() {
                         {!isLoadingSelectData && 
                           brands.map(brand => (<SelectItem key={brand.id} value={String(brand.id)}>{brand.name}</SelectItem>))
                         }
-                        {!isLoadingSelectData && brands.length === 0 && <div className="p-2 text-sm text-center">Không có DL</div>}
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
                 
-                {/* Promotion Select (ĐÃ SỬA) */}
+                {/* Promotion Select */}
                 <div>
                   <Label htmlFor="promotionSelect" className="text-xs text-muted-foreground">Khuyến mãi áp dụng (Chỉ hiện mục active)</Label>
                   <Select 
@@ -599,12 +556,11 @@ export function ProductManagement() {
                   >
                     <SelectTrigger id="promotionSelect" className="mt-1"><SelectValue placeholder="-- Không áp dụng KM --" /></SelectTrigger>
                     <SelectContent>
-                          <SelectItem value={CLEAR_SELECTION_VALUE}>-- Không áp dụng KM --</SelectItem>
-                          {isLoadingSelectData && <div className="p-2 text-sm text-center">Đang tải...</div>}
-                          {!isLoadingSelectData &&
-                            promotionsBrief.map(promo => ( <SelectItem key={promo.id} value={String(promo.id)}>{promo.name}</SelectItem> ))
-                          }
-                          {!isLoadingSelectData && promotionsBrief.length === 0 && <div className="p-2 text-sm text-center">Không có KM</div>}
+                        <SelectItem value={CLEAR_SELECTION_VALUE}>-- Không áp dụng KM --</SelectItem>
+                        {isLoadingSelectData && <div className="p-2 text-sm text-center">Đang tải...</div>}
+                        {!isLoadingSelectData &&
+                          promotionsBrief.map(promo => ( <SelectItem key={promo.id} value={String(promo.id)}>{promo.name}</SelectItem> ))
+                        }
                     </SelectContent>
                   </Select>
                 </div>
@@ -616,7 +572,7 @@ export function ProductManagement() {
               </CardContent>
             </Card>
 
-            {/* Khối quản lý thuộc tính (Giữ nguyên) */}
+            {/* 2. Thuộc tính sản phẩm (Không đổi) */}
             <Card>
               <CardHeader className="pb-4">
                 <CardTitle className="text-base font-semibold">2. Thuộc tính sản phẩm</CardTitle>
@@ -704,7 +660,7 @@ export function ProductManagement() {
               </CardContent>
             </Card>
 
-            {/* Nút Submit / Hủy (Giữ nguyên) */}
+            {/* Nút Submit / Hủy */}
             <div className="flex gap-3 pt-4 border-t">
               <Button onClick={handleSubmit} className="flex-1" disabled={isLoading}>
                 {isLoading ? (editingId ? "Đang cập nhật..." : "Đang lưu...") : (editingId ? "Cập nhật sản phẩm" : "Lưu sản phẩm")}
@@ -717,7 +673,7 @@ export function ProductManagement() {
         </Card>
       )}
 
-      {/* --- DANH SÁCH SẢN PHẨM (Giữ nguyên) --- */}
+      {/* --- DANH SÁCH SẢN PHẨM (ĐÃ CẬP NHẬT NÚT XÓA) --- */}
       <Card className="shadow-sm">
         <CardHeader>
           <CardTitle className="text-xl font-semibold">Danh sách sản phẩm</CardTitle>
@@ -735,7 +691,7 @@ export function ProductManagement() {
         </CardHeader>
         <CardContent>
           {isLoading && products.length === 0 ? ( <div className="text-center py-6 text-muted-foreground animate-pulse">Đang tải...</div>
-          ) : error ? ( <div className="text-center py-6 text-red-600">Lỗi: {error}</div>
+          ) : apiError ? ( <div className="text-center py-6 text-red-600">Lỗi: {apiError}</div>
           ) : products.length === 0 ? ( <div className="text-center py-6 text-muted-foreground">{searchTerm ? `Không tìm thấy "${searchTerm}".` : `Không có sản phẩm nào (${filterStatus.toLowerCase()}).`}</div>
           ) : (
             <>
@@ -743,22 +699,31 @@ export function ProductManagement() {
                 <table className="w-full text-sm">
                   <thead className="bg-muted/30">
                     <tr className="border-b">
-                      <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Ảnh</th><th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Tên sản phẩm</th><th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Danh mục</th><th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Thương hiệu</th><th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Số BT</th><th className="text-right py-2.5 px-3 font-semibold text-foreground/80">Giá</th><th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Trạng thái</th>
-                      {/* --- SỬA 11: Ẩn cột Hành động nếu là STAFF --- */}
+                      <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Ảnh</th>
+                      <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Tên sản phẩm</th>
+                      <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Danh mục</th>
+                      <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Thương hiệu</th>
+                      <th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Số BT</th>
+                      <th className="text-right py-2.5 px-3 font-semibold text-foreground/80">Giá</th>
+                      <th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Trạng thái</th>
                       {canEdit && (
                         <th className="text-center py-2.5 px-3 font-semibold text-foreground/80 w-[120px]">Hành động</th>
                       )}
-                      {/* --- KẾT THÚC SỬA 11 --- */}
                     </tr>
                   </thead>
                   <tbody>
                     {products.map((product) => (
                       <tr key={product.id} className={`border-b last:border-b-0 hover:bg-muted/20 transition-colors ${!product.active ? 'opacity-60 bg-gray-50 dark:bg-gray-900/30' : ''}`}>
-                        <td className="py-2 px-3"><img src={product.imageUrl || "/placeholder.svg"} alt={product.name} className="w-10 h-10 object-cover rounded border"/></td><td className="py-2 px-3 font-medium text-foreground">{product.name}</td><td className={`py-2 px-3 text-muted-foreground ${product.categoryId != null && product.isCategoryActive === false ? 'text-red-500 font-medium' : ''}`}>
+                        <td className="py-2 px-3"><img src={product.imageUrl || "/placeholder.svg"} alt={product.name} className="w-10 h-10 object-cover rounded border" onError={(e) => { (e.target as HTMLImageElement).src = "/placeholder.svg"; }}/></td>
+                        <td className="py-2 px-3 font-medium text-foreground">{product.name}</td>
+                        <td className={`py-2 px-3 text-muted-foreground ${product.categoryId != null && product.isCategoryActive === false ? 'text-red-500 font-medium' : ''}`}>
                             {product.categoryName || "-"}
-                        </td><td className={`py-2 px-3 text-muted-foreground ${product.brandId != null && product.isBrandActive === false ? 'text-red-500 font-medium' : ''}`}>
+                        </td>
+                        <td className={`py-2 px-3 text-muted-foreground ${product.brandId != null && product.isBrandActive === false ? 'text-red-500 font-medium' : ''}`}>
                             {product.brandName || "-"}
-                        </td><td className="py-2 px-3 text-muted-foreground text-center">{product.variantCount}</td><td className="py-2 px-3 text-right">
+                        </td>
+                        <td className="py-2 px-3 text-muted-foreground text-center">{product.variantCount}</td>
+                        <td className="py-2 px-3 text-right">
                           {product.salePrice !== null && product.salePrice < product.price ? (
                             <div className="flex flex-col items-end">
                               <span className="font-semibold text-destructive">{(product.salePrice?.toLocaleString('vi-VN') ?? '0').toString()}₫</span>
@@ -767,41 +732,43 @@ export function ProductManagement() {
                           ) : (
                               <span>{(product.price?.toLocaleString('vi-VN') ?? '0').toString()}₫</span>
                           )}
-                        </td><td className="py-2 px-3 text-center">
+                        </td>
+                        <td className="py-2 px-3 text-center">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${product.active ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"}`}>
                             {product.active ? "Hoạt động" : "Ngừng HĐ"}
                           </span>
                         </td>
-                        {/* --- SỬA 12: Ẩn các nút nếu là STAFF --- */}
                         {canEdit && (
                           <td className="py-2 px-3">
                             <div className="flex gap-1.5 justify-center">
+                              {/* === SỬA: Dùng Dialog === */}
                               <Button variant="outline" size="icon" className="w-7 h-7" title="Sửa" onClick={() => handleEdit(product)}><Edit2 size={14} /></Button>
                               
                               {product.active ? (
-                                <Button variant="outline" size="icon" className="w-7 h-7 text-destructive border-destructive hover:bg-destructive/10" title="Ngừng hoạt động" onClick={() => handleDelete(product.id)}><Trash2 size={14} /></Button>
+                                <Button variant="outline" size="icon" className="w-7 h-7 text-destructive border-destructive hover:bg-destructive/10" title="Ngừng hoạt động" onClick={() => setDialogState({ isOpen: true, action: 'delete', product: product })}>
+                                  <Trash2 size={14} />
+                                </Button>
                               ) : (
-                                <Button variant="outline" size="icon" className="w-7 h-7 text-green-600 border-green-600 hover:bg-green-100/50" title="Kích hoạt lại" onClick={() => handleReactivate(product)}>
+                                <Button variant="outline" size="icon" className="w-7 h-7 text-green-600 border-green-600 hover:bg-green-100/50" title="Kích hoạt lại" onClick={() => setDialogState({ isOpen: true, action: 'reactivate', product: product })}>
                                   <RotateCcw size={14} /> 
                                 </Button>
                               )}
 
-                              {/* Chỉ ADMIN mới được Xóa vĩnh viễn */}
+                              {/* === SỬA: Dùng XCircle và logic chuẩn === */}
                               {!product.active && product.variantCount === 0 && isAdmin && (
                                 <Button 
-                                  variant="destructive" 
+                                  variant="outline" 
                                   size="icon" 
-                                  className="w-7 h-7" 
+                                  className="w-7 h-7 text-red-700 border-red-700 hover:bg-red-100/50 dark:text-red-500 dark:border-red-500 dark:hover:bg-red-900/30" 
                                   title="Xóa vĩnh viễn" 
-                                  onClick={() => handlePermanentDelete(product.id)}
+                                  onClick={() => setDialogState({ isOpen: true, action: 'permanentDelete', product: product })}
                                 >
-                                  <Trash2 size={14} />
+                                  <XCircle size={14} />
                                 </Button>
                               )}
                             </div>
                           </td>
                         )}
-                        {/* --- KẾT THÚC SỬA 12 --- */}
                       </tr>
                     ))}
                   </tbody>
@@ -811,6 +778,42 @@ export function ProductManagement() {
             </>
           )}
         </CardContent>
+
+        {/* === THÊM: Dialog Xác nhận === */}
+        <AlertDialog open={dialogState.isOpen} onOpenChange={(open) => !open && closeDialog()}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {dialogState.action === 'delete' && "Xác nhận ngừng hoạt động?"}
+                {dialogState.action === 'reactivate' && "Xác nhận kích hoạt lại?"}
+                {dialogState.action === 'permanentDelete' && "Xác nhận XÓA VĨNH VIỄN?"}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {dialogState.action === 'delete' && `Bạn có chắc muốn ngừng hoạt động "${dialogState.product?.name}"? Các biến thể liên quan cũng sẽ bị ngừng hoạt động.`}
+                {dialogState.action === 'reactivate' && `Bạn có chắc muốn kích hoạt lại "${dialogState.product?.name}"?`}
+                {dialogState.action === 'permanentDelete' && (
+                  <span className="text-red-600 font-medium dark:text-red-400">
+                    Hành động này KHÔNG THỂ hoàn tác. Sản phẩm "${dialogState.product?.name}" sẽ bị xóa vĩnh viễn (vì không còn biến thể nào).
+                  </span>
+                )}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={closeDialog}>Hủy</AlertDialogCancel>
+              <AlertDialogAction asChild>
+                <Button
+                  onClick={handleConfirmAction}
+                  variant={ (dialogState.action === 'delete' || dialogState.action === 'permanentDelete') ? "destructive" : "default" }
+                >
+                  {dialogState.action === 'delete' && "Xác nhận ngừng HĐ"}
+                  {dialogState.action === 'reactivate' && "Xác nhận kích hoạt"}
+                  {dialogState.action === 'permanentDelete' && "Xóa vĩnh viễn"}
+                </Button>
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
       </Card>
     </div>
   )

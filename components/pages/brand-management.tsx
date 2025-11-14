@@ -7,17 +7,28 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Plus, Edit2, Trash2, Search, RotateCcw } from "lucide-react";
+import { Plus, Edit2, Trash2, Search, RotateCcw, XCircle } from "lucide-react"; // <-- THÊM XCircle
 import { useAuthStore } from "@/lib/authStore";
 import { Pagination } from "@/components/store/pagination";
 import { toast } from "sonner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ImageUpload } from "@/components/store/image-upload";
-import { manualFetchApi } from "@/lib/api"; // <-- (Giả sử file api.ts nằm ở lib/api.ts)
+import { manualFetchApi } from "@/lib/api";
+// THÊM: Import Alert Dialog
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const ITEMS_PER_PAGE = 5;
 
-// --- Interfaces ---
+// --- Interfaces (Đã chuẩn) ---
 interface BrandResponse { 
   id: number; 
   name: string; 
@@ -33,14 +44,22 @@ interface BrandFormData {
   active: boolean; 
 }
 
+// Kiểu cho state lỗi
+type BrandFormErrors = Partial<Record<keyof BrandFormData, string>>;
+
+// Kiểu cho state của Dialog
+interface DialogState {
+  isOpen: boolean;
+  action: 'delete' | 'reactivate' | 'permanentDelete' | null;
+  brand: BrandResponse | null;
+}
+
 // --- Component ---
 export function BrandManagement() { 
-  // --- Lấy user và quyền ---
+  // --- Lấy user và quyền (Đã chuẩn) ---
   const { user } = useAuthStore();
   const roles = user?.roles || [];
-  // (Chỉ Manager và Admin mới có quyền sửa)
   const canEdit = roles.includes("ADMIN") || roles.includes("MANAGER");
-  // (Chỉ Admin mới có quyền xóa vĩnh viễn)
   const isAdmin = roles.includes("ADMIN");
 
   // --- States ---
@@ -55,13 +74,21 @@ export function BrandManagement() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [formData, setFormData] = useState<BrandFormData>({ name: "", description: "", imageUrl: "", active: true }); 
-  const [errors, setErrors] = useState<Partial<Record<keyof BrandFormData, string>>>({}); 
+  
+  // === SỬA: State lỗi (Inline validation) ===
+  const [formErrors, setFormErrors] = useState<BrandFormErrors>({});
+  const [apiError, setApiError] = useState<string | null>(null);
+  
+  // === THÊM: State quản lý dialog xác nhận ===
+  const [dialogState, setDialogState] = useState<DialogState>({
+    isOpen: false,
+    action: null,
+    brand: null,
+  });
 
-  // --- API Fetching (ĐÃ SỬA LỖI API_URL) ---
+  // --- API Fetching (Đã chuẩn) ---
   const fetchBrands = useCallback(async () => { 
     setIsFetching(true);
-    
-    // 1. Tạo chuỗi query
     const query = new URLSearchParams();
     query.append("page", (brandPage - 1).toString());
     query.append("size", ITEMS_PER_PAGE.toString());
@@ -70,9 +97,7 @@ export function BrandManagement() {
     if (brandSearchTerm) query.append("search", brandSearchTerm);
 
     try {
-      // 2. Gọi manualFetchApi với chỉ đường dẫn
       const result = await manualFetchApi(`/v1/brands?${query.toString()}`);
-      
       if (result.status === 'SUCCESS' && result.data) {
         setBrands(result.data.content); 
         setTotalBrandPages(result.data.totalPages); 
@@ -81,31 +106,43 @@ export function BrandManagement() {
       toast.error(`Lỗi tải thương hiệu: ${err.message}`); 
     } 
     finally { setIsFetching(false); }
-  }, [brandPage, brandSearchTerm, filterStatus]); // (Đã xóa 'token' khỏi dependency)
+  }, [brandPage, brandSearchTerm, filterStatus]);
 
-  // --- useEffects ---
   useEffect(() => { fetchBrands(); }, [fetchBrands]); 
 
   // --- Handlers ---
   const resetForm = () => {
     setShowForm(false); setEditingId(null); 
-    setErrors({}); 
+    setApiError(null); // <-- SỬA
+    setFormErrors({}); // <-- SỬA
     setFormData({ name: "", description: "", imageUrl: "", active: true });
   }
 
-  // Submit Form (Tạo/Sửa)
+  // === THÊM: Hàm Validate Mới ===
+  const validateForm = (): BrandFormErrors => {
+    const newErrors: BrandFormErrors = {};
+    const name = formData.name.trim();
+    if (!name) { 
+        newErrors.name = "Tên thương hiệu không được để trống."; 
+    }
+    // (Thêm validate cho imageUrl nếu cần)
+    // if (!formData.imageUrl) {
+    //    newErrors.imageUrl = "Hình ảnh không được để trống.";
+    // }
+    return newErrors;
+  }
+
+  // === SỬA: handleSubmit (Tích hợp Inline Validation) ===
   const handleSubmit = async () => {
     if (!canEdit) { 
       toast.error("Bạn không có quyền thực hiện hành động này.");
       return;
     }
     
-    // ... (Logic validate giữ nguyên)
-    const newErrors: Partial<Record<keyof BrandFormData, string>> = {};
-    const name = formData.name.trim();
-    if (!name) { newErrors.name = "Tên thương hiệu không được để trống."; } 
-    else if (name.length < 1) { newErrors.name = "Tên thương hiệu không được bỏ trống"; }
-    setErrors(newErrors);
+    setApiError(null);
+    const newErrors = validateForm();
+    setFormErrors(newErrors);
+
     if (Object.keys(newErrors).length > 0) {
       toast.error("Vui lòng kiểm tra lại thông tin.");
       return;
@@ -114,7 +151,7 @@ export function BrandManagement() {
     const isEditing = !!editingId;
     const url = isEditing ? `/v1/brands/${editingId}` : `/v1/brands`;
     const method = isEditing ? "PUT" : "POST";
-    const requestBody = { ...formData, name: name, imageUrl: formData.imageUrl || null }; 
+    const requestBody = { ...formData, name: formData.name.trim(), imageUrl: formData.imageUrl || null }; 
     
     try {
       const result = await manualFetchApi(url, {
@@ -127,19 +164,23 @@ export function BrandManagement() {
         resetForm(); 
         fetchBrands(); 
       } else {
-         if (result.message && (result.message.toLowerCase().includes("đã tồn tại") || result.message.toLowerCase().includes("duplicate"))) { 
-           setErrors({ name: result.message });
-           toast.error(result.message);
-         } else {
-           throw new Error(result.message || (isEditing ? "Cập nhật thất bại" : "Thêm thất bại"));
-         }
+         // Trường hợp BE trả về 200 OK nhưng status: "ERROR"
+         // (Mặc dù manualFetchApi mới của chúng ta sẽ ném lỗi 409 trước)
+        throw new Error(result.message || (isEditing ? "Cập nhật thất bại" : "Thêm thất bại"));
       }
     } catch (err: any) { 
-      toast.error(`Lỗi: ${err.message}`); 
+      // Bắt lỗi 409 (Trùng lặp) từ manualFetchApi
+      if (err.message && (err.message.toLowerCase().includes("đã tồn tại") || err.message.toLowerCase().includes("duplicate"))) { 
+        setFormErrors({ name: err.message }); // Gán lỗi vào ô Tên
+        toast.error(err.message);
+      } else {
+        toast.error(`Lỗi: ${err.message}`); 
+        setApiError(err.message); // Lỗi API chung
+      }
     }
   };
 
-  // Mở form Sửa
+  // handleEdit (Đã cập nhật reset lỗi)
   const handleEdit = (brand: BrandResponse) => {
     if (!canEdit) { 
       toast.error("Bạn không có quyền sửa.");
@@ -153,83 +194,65 @@ export function BrandManagement() {
     });
     setEditingId(brand.id); 
     setShowForm(true); 
-    setErrors({});
+    setApiError(null);
+    setFormErrors({});
   };
   
-  // Ngừng hoạt động (Soft Delete)
-  const handleDelete = async (id: number) => {
-    if (!canEdit) { 
-      toast.error("Bạn không có quyền ngừng hoạt động.");
-      return;
-    }
-    
-    if (!confirm("Ngừng hoạt động thương hiệu này? LƯU Ý: Tất cả sản phẩm đang hoạt động thuộc thương hiệu này cũng sẽ bị ngừng hoạt động.")) return;
-    
-    try {
-      const result = await manualFetchApi(`/v1/brands/${id}`, { method: "DELETE" });
-      
-      if (result.status === 'SUCCESS') {
-        toast.success("Đã ngừng hoạt động thương hiệu và sản phẩm liên quan."); 
-        fetchBrands(); 
-      } else throw new Error(result.message || "Xóa thất bại");
-    } catch (err: any) { toast.error(`Lỗi: ${err.message}`); }
+  // === THAY THẾ: Logic Dialog (Thay cho handleDelete, handlePermanentDelete, handleReactivate) ===
+  const closeDialog = () => {
+    setDialogState({ isOpen: false, action: null, brand: null });
   };
 
-  // Xóa vĩnh viễn (Permanent Delete)
-  const handlePermanentDelete = async (id: number) => {
-    if (!isAdmin) { 
-      toast.error("Chỉ Quản trị viên (Admin) mới có quyền xóa vĩnh viễn.");
-      return;
-    }
-    
-    if (!confirm("BẠN CÓ CHẮC CHẮN MUỐN XÓA VĨNH VIỄN? Hành động này không thể hoàn tác.")) return;
-    
+  const handleConfirmAction = async () => {
+    const { action, brand } = dialogState;
+    if (!brand) return;
+
     try {
-      const result = await manualFetchApi(`/v1/brands/${id}/permanent`, { 
-        method: "DELETE" 
-      });
+      // 1. Logic cho "Ngừng hoạt động"
+      if (action === 'delete') {
+        if (!canEdit) { toast.error("Bạn không có quyền."); return; }
+        const result = await manualFetchApi(`/v1/brands/${brand.id}`, { method: "DELETE" });
+        if (result.status === 'SUCCESS') {
+          toast.success("Đã ngừng hoạt động thương hiệu và sản phẩm liên quan."); 
+          fetchBrands(); 
+        } else throw new Error(result.message || "Xóa thất bại");
+      }
       
-      if (result.status === 'SUCCESS') {
+      // 2. Logic cho "Kích hoạt lại"
+      else if (action === 'reactivate') {
+        if (!canEdit) { toast.error("Bạn không có quyền."); return; }
+        const url = `/v1/brands/${brand.id}`;
+        const requestBody = { 
+            name: brand.name, 
+            description: brand.description, 
+            imageUrl: brand.imageUrl, 
+            active: true 
+        };
+        const result = await manualFetchApi(url, { method: "PUT", body: JSON.stringify(requestBody) });
+        if (result.status === 'SUCCESS') {
+          toast.success("Kích hoạt lại thương hiệu thành công!");
+          fetchBrands(); 
+        } else throw new Error(result.message || "Kích hoạt thất bại");
+      }
+      
+      // 3. Logic cho "Xóa vĩnh viễn"
+      else if (action === 'permanentDelete') {
+        if (!isAdmin) { toast.error("Bạn không có quyền."); return; }
+        // Dùng endpoint của bạn: /permanent
+        const result = await manualFetchApi(`/v1/brands/${brand.id}/permanent`, { method: "DELETE" }); 
+        if (result.status === 'SUCCESS') {
           toast.success("Đã xóa vĩnh viễn thương hiệu.");
-          fetchBrands(); // Tải lại
-      } else {
-          throw new Error(result.message || "Xóa vĩnh viễn thất bại");
+          fetchBrands();
+        } else throw new Error(result.message || "Xóa vĩnh viễn thất bại");
       }
     } catch (err: any) { 
       toast.error(`Lỗi: ${err.message}`); 
+    } finally {
+      closeDialog();
     }
   };
   
-  // Kích hoạt lại
-  const handleReactivate = async (brand: BrandResponse) => {
-    if (!canEdit) { 
-      toast.error("Bạn không có quyền kích hoạt lại.");
-      return;
-    }
-
-    if (!confirm(`Kích hoạt lại thương hiệu "${brand.name}"?`)) return;
-    const url = `/v1/brands/${brand.id}`;
-    
-    const requestBody = { 
-        name: brand.name, 
-        description: brand.description, 
-        imageUrl: brand.imageUrl, 
-        active: true 
-    };
-    try {
-      const result = await manualFetchApi(url, { 
-        method: "PUT", 
-        body: JSON.stringify(requestBody) 
-      });
-      
-      if (result.status === 'SUCCESS') {
-        toast.success("Kích hoạt lại thương hiệu thành công!");
-        fetchBrands(); 
-      } else throw new Error(result.message || "Kích hoạt thất bại");
-    } catch (err: any) { toast.error(`Lỗi: ${err.message}`); }
-  };
-
-  // Đổi Tab (Giữ nguyên)
+  // Đổi Tab (Đã chuẩn)
   const handleTabChange = (newStatus: string) => {
     setFilterStatus(newStatus);
     setBrandPage(1); 
@@ -245,7 +268,6 @@ export function BrandManagement() {
           <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Quản lý Thương hiệu</h1>
           <p className="text-sm text-muted-foreground mt-1">Tạo và quản lý các thương hiệu sản phẩm</p>
         </div>
-        {/* Ẩn nút "Thêm" nếu là STAFF */}
         {canEdit && (
           <Button onClick={() => { resetForm(); setShowForm(true); }} className="gap-1.5 self-start sm:self-center" size="sm"> 
             <Plus size={16} /> Thêm Thương hiệu 
@@ -253,7 +275,10 @@ export function BrandManagement() {
         )}
       </div>
 
-      {/* Ẩn Form Thêm/Sửa nếu là STAFF */}
+      {/* Lỗi API chung */}
+      {apiError && ( <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md border border-destructive/30 animate-shake">{apiError}</div> )}
+      
+      {/* Form (Đã cập nhật Inline Validation) */}
       {showForm && canEdit && ( 
         <Card className="border-blue-500/50 shadow-md animate-fade-in">
           <CardHeader className="pb-4 border-b">
@@ -265,24 +290,33 @@ export function BrandManagement() {
               value={formData.imageUrl || ""} 
               onChange={(value) => setFormData({ ...formData, imageUrl: value })} 
               label="Hình ảnh thương hiệu (URL)"
+              // (Thêm validate nếu cần)
+              // error={formErrors.imageUrl} 
             />
+            {/* {formErrors.imageUrl && <p className="text-xs text-destructive -mt-3 ml-1">{formErrors.imageUrl}</p>} */}
+            
             <div className="space-y-1.5">
+              <Label htmlFor="brandName" className={`text-xs ${formErrors.name ? 'text-destructive' : 'text-muted-foreground'}`}>Tên thương hiệu *</Label>
               <Input 
-                placeholder="Tên thương hiệu *" 
+                id="brandName"
+                placeholder="Tên thương hiệu" 
                 value={formData.name} 
                 onChange={(e) => {
                   setFormData({ ...formData, name: e.target.value });
-                  if (errors.name) setErrors(prev => ({ ...prev, name: undefined }));
+                  if (formErrors.name) setFormErrors(prev => ({ ...prev, name: undefined }));
                 }}
-                className={errors.name ? "border-destructive focus-visible:ring-destructive" : ""} 
+                className={formErrors.name ? "border-destructive" : ""} 
               />
-              {errors.name && <p className="text-xs text-destructive">{errors.name}</p>}
+              {formErrors.name && <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.name}</p>}
             </div>
+            
             <Textarea placeholder="Mô tả (tùy chọn)" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} className="min-h-[60px]"/>
+            
             <div className="flex items-center gap-2">
-                <Checkbox id="brandActiveForm" checked={formData.active} onCheckedChange={(checked) => setFormData({ ...formData, active: Boolean(checked) })}/>
-                <Label htmlFor="brandActiveForm" className="text-sm">Đang hoạt động</Label>
+              <Checkbox id="brandActiveForm" checked={formData.active} onCheckedChange={(checked) => setFormData({ ...formData, active: Boolean(checked) })}/>
+              <Label htmlFor="brandActiveForm" className="text-sm">Đang hoạt động</Label>
             </div>
+            
             <div className="flex gap-3 pt-3 border-t">
               <Button onClick={handleSubmit} className="flex-1">{editingId ? "Cập nhật" : "Lưu"} thương hiệu</Button>
               <Button variant="outline" onClick={resetForm} className="flex-1">Hủy</Button>
@@ -291,7 +325,7 @@ export function BrandManagement() {
         </Card>
       )}
 
-      {/* --- Bảng Danh sách --- */}
+      {/* --- Bảng Danh sách (ĐÃ CẬP NHẬT NÚT XÓA) --- */}
       <Card className="shadow-sm">
         <CardHeader>
           <CardTitle className="text-xl font-semibold">Danh sách Thương hiệu</CardTitle>
@@ -311,87 +345,117 @@ export function BrandManagement() {
           {isFetching ? <div className="text-center py-6 text-muted-foreground animate-pulse">Đang tải...</div> :
             brands.length === 0 ? <div className="text-center py-6 text-muted-foreground">{brandSearchTerm ? "Không tìm thấy." : `Không có thương hiệu nào (${filterStatus.toLowerCase()}).`}</div> :
             (
-              <>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-muted/30">
-                      <tr className="border-b">
-                        <th className="text-left py-2.5 px-3 font-semibold text-foreground/80 w-[60px]">Ảnh</th> 
-                        <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Tên Thương hiệu</th>
-                        <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Số SP</th>
-                        <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Mô tả</th>
-                        <th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Trạng thái</th>
-                        {/* Ẩn cột Hành động nếu là STAFF */}
-                        {canEdit && (
-                          <th className="text-center py-2.5 px-3 font-semibold text-foreground/80 w-[120px]">Hành động</th>
-                        )}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {brands.map((brand) => (
-                        <tr key={brand.id} className={`border-b last:border-b-0 hover:bg-muted/20 transition-colors ${!brand.active ? 'opacity-60 bg-gray-50 dark:bg-gray-900/30' : ''}`}>
-                          
-                          <td className="py-2 px-3">
-                            <img 
-                              src={brand.imageUrl || "/placeholder.svg"} 
-                              alt={brand.name} 
-                              className="w-10 h-10 object-contain rounded border"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src = "/placeholder.svg";
-                              }}
-                            />
-                          </td>
-                          <td className="py-2 px-3 font-medium text-foreground">{brand.name}</td>
-                          <td className="py-2 px-3 text-muted-foreground text-sm">{brand.productCount}</td>
-                          <td className="py-2 px-3 text-muted-foreground text-xs truncate max-w-xs">{brand.description || "-"}</td>
-                          <td className="py-2 px-3 text-center">
-                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${brand.active ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"}`}>
-                              {brand.active ? "Hoạt động" : "Ngừng HĐ"}
-                            </span>
-                          </td>
-                          
-                          {/* Ẩn các nút nếu là STAFF */}
-                          {canEdit && (
-                            <td className="py-2 px-3">
-                              <div className="flex gap-1.5 justify-center">
-                                {/* Nút Sửa: Luôn hiển thị */}
-                                <Button variant="outline" size="icon" className="w-7 h-7" title="Sửa" onClick={() => handleEdit(brand)}><Edit2 size={14} /></Button>
-                                
-                                {brand.active ? (
-                                  // Nút Ngừng HĐ (Soft Delete)
-                                  <Button variant="outline" size="icon" className="w-7 h-7 text-destructive border-destructive hover:bg-destructive/10" title="Ngừng hoạt động" onClick={() => handleDelete(brand.id)}><Trash2 size={14} /></Button>
-                                ) : (
-                                  // Nút Kích hoạt lại
-                                  <Button variant="outline" size="icon" className="w-7 h-7 text-green-600 border-green-600 hover:bg-green-100/50" title="Kích hoạt lại" onClick={() => handleReactivate(brand)}>
-                                    <RotateCcw size={14} /> 
-                                  </Button>
-                                )}
+             <>
+               <div className="overflow-x-auto">
+                 <table className="w-full text-sm">
+                   <thead className="bg-muted/30">
+                     <tr className="border-b">
+                       <th className="text-left py-2.5 px-3 font-semibold text-foreground/80 w-[60px]">Ảnh</th> 
+                       <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Tên Thương hiệu</th>
+                       <th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Số SP</th>
+                       <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Mô tả</th>
+                       <th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Trạng thái</th>
+                       {canEdit && (
+                         <th className="text-center py-2.5 px-3 font-semibold text-foreground/80 w-[120px]">Hành động</th>
+                       )}
+                     </tr>
+                   </thead>
+                   <tbody>
+                     {brands.map((brand) => (
+                       <tr key={brand.id} className={`border-b last:border-b-0 hover:bg-muted/20 transition-colors ${!brand.active ? 'opacity-60 bg-gray-50 dark:bg-gray-900/30' : ''}`}>
+                         
+                         <td className="py-2 px-3">
+                           <img 
+                             src={brand.imageUrl || "/placeholder.svg"} 
+                             alt={brand.name} 
+                             className="w-10 h-10 object-contain rounded border"
+                             onError={(e) => { (e.target as HTMLImageElement).src = "/placeholder.svg"; }}
+                           />
+                         </td>
+                         <td className="py-2 px-3 font-medium text-foreground">{brand.name}</td>
+                         <td className="py-2 px-3 text-muted-foreground text-sm text-center">{brand.productCount}</td>
+                         <td className="py-2 px-3 text-muted-foreground text-xs truncate max-w-xs">{brand.description || "-"}</td>
+                         <td className="py-2 px-3 text-center">
+                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${brand.active ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"}`}>
+                             {brand.active ? "Hoạt động" : "Ngừng HĐ"}
+                           </span>
+                         </td>
+                         
+                         {canEdit && (
+                           <td className="py-2 px-3">
+                             <div className="flex gap-1.5 justify-center">
+                               <Button variant="outline" size="icon" className="w-7 h-7" title="Sửa" onClick={() => handleEdit(brand)}><Edit2 size={14} /></Button>
+                               
+                               {brand.active ? (
+                                 <Button variant="outline" size="icon" className="w-7 h-7 text-destructive border-destructive hover:bg-destructive/10" title="Ngừng hoạt động" onClick={() => setDialogState({ isOpen: true, action: 'delete', brand: brand })}>
+                                   <Trash2 size={14} />
+                                 </Button>
+                               ) : (
+                                 <Button variant="outline" size="icon" className="w-7 h-7 text-green-600 border-green-600 hover:bg-green-100/50" title="Kích hoạt lại" onClick={() => setDialogState({ isOpen: true, action: 'reactivate', brand: brand })}>
+                                   <RotateCcw size={14} /> 
+                                 </Button>
+                               )}
 
-                                {/* Nút Xóa vĩnh viễn (Hard Delete) */}
-                                {/* Chỉ hiển thị khi: ĐANG NGỪNG HĐ, KHÔNG CÓ SẢN PHẨM VÀ LÀ ADMIN */}
-                                {!brand.active && brand.productCount === 0 && isAdmin && ( 
-                                  <Button 
-                                    variant="destructive" 
-                                    size="icon" 
-                                    className="w-7 h-7" 
-                                    title="Xóa vĩnh viễn" 
-                                    onClick={() => handlePermanentDelete(brand.id)}
-                                  >
-                                    <Trash2 size={14} />
-                                  </Button>
-                                )}
-                              </div>
-                            </td>
-                          )}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                {totalBrandPages > 1 && (<div className="flex justify-center pt-4"><Pagination currentPage={brandPage} totalPages={totalBrandPages} onPageChange={setBrandPage} /></div>)}
-              </>
+                               {/* THAY ĐỔI: Dùng XCircle và logic chuẩn */}
+                               {!brand.active && brand.productCount === 0 && isAdmin && ( 
+                                 <Button 
+                                   variant="outline" 
+                                   size="icon" 
+                                   className="w-7 h-7 text-red-700 border-red-700 hover:bg-red-100/50 dark:text-red-500 dark:border-red-500 dark:hover:bg-red-900/30" 
+                                   title="Xóa vĩnh viễn" 
+                                   onClick={() => setDialogState({ isOpen: true, action: 'permanentDelete', brand: brand })}
+                                 >
+                                   <XCircle size={14} />
+                                 </Button>
+                               )}
+                             </div>
+                           </td>
+                         )}
+                       </tr>
+                     ))}
+                   </tbody>
+                 </table>
+               </div>
+               {totalBrandPages > 1 && (<div className="flex justify-center pt-4"><Pagination currentPage={brandPage} totalPages={totalBrandPages} onPageChange={setBrandPage} /></div>)}
+             </>
             )}
         </CardContent>
+
+        {/* THÊM: Dialog Xác nhận */}
+        <AlertDialog open={dialogState.isOpen} onOpenChange={(open) => !open && closeDialog()}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {dialogState.action === 'delete' && "Xác nhận ngừng hoạt động?"}
+                {dialogState.action === 'reactivate' && "Xác nhận kích hoạt lại?"}
+                {dialogState.action === 'permanentDelete' && "Xác nhận XÓA VĨNH VIỄN?"}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {dialogState.action === 'delete' && `Bạn có chắc muốn ngừng hoạt động "${dialogState.brand?.name}"? TẤT CẢ sản phẩm thuộc thương hiệu này cũng sẽ bị ngừng hoạt động.`}
+                {dialogState.action === 'reactivate' && `Bạn có chắc muốn kích hoạt lại "${dialogState.brand?.name}"? (Sản phẩm liên quan SẼ KHÔNG tự động kích hoạt lại).`}
+                {dialogState.action === 'permanentDelete' && (
+                  <span className="text-red-600 font-medium dark:text-red-400">
+                    Hành động này KHÔNG THỂ hoàn tác. Thương hiệu "${dialogState.brand?.name}" sẽ bị xóa vĩnh viễn (vì không còn sản phẩm nào).
+                  </span>
+                )}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={closeDialog}>Hủy</AlertDialogCancel>
+              <AlertDialogAction asChild>
+                <Button
+                  onClick={handleConfirmAction}
+                  variant={ (dialogState.action === 'delete' || dialogState.action === 'permanentDelete') ? "destructive" : "default" }
+                >
+                  {dialogState.action === 'delete' && "Xác nhận ngừng HĐ"}
+                  {dialogState.action === 'reactivate' && "Xác nhận kích hoạt"}
+                  {dialogState.action === 'permanentDelete' && "Xóa vĩnh viễn"}
+                </Button>
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
       </Card>
     </div>
   )
