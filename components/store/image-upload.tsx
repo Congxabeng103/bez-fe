@@ -1,10 +1,9 @@
 "use client";
 
 import type React from "react";
-import { useState } from "react";
 import { Upload, X, Loader2 } from "lucide-react"; // 1. Thêm Loader2
 import { toast } from "sonner"; // 2. Thêm toast
-
+import { useState, useEffect } from "react"; // <-- SỬA 1: Thêm useEffect
 // --- Lấy biến môi trường ---
 const CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
 const UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
@@ -43,7 +42,7 @@ export function ImageUpload({
     const formData = new FormData();
     formData.append("file", file);
     formData.append("upload_preset", UPLOAD_PRESET);
-
+    formData.append("phash", "true");
     try {
       const response = await fetch(
         `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`,

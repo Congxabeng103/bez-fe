@@ -582,7 +582,7 @@ export function VariantManagement() {
                 {variantDialogState.action === 'reactivate' && `Bạn có chắc muốn kích hoạt lại SKU "${variantDialogState.data?.sku}"?`}
                 {variantDialogState.action === 'permanentDelete' && (
                   <span className="text-red-600 font-medium dark:text-red-400">
-                    Hành động này KHÔNG THỂ hoàn tác. Biến thể "${variantDialogState.data?.sku}" sẽ bị xóa vĩnh viễn (vì chưa có đơn hàng nào).
+                    Hành động này KHÔNG THỂ hoàn tác. Biến thể "{variantDialogState.data?.sku}" sẽ bị xóa vĩnh viễn (vì chưa có đơn hàng nào).
                   </span>
                 )}
               </AlertDialogDescription>

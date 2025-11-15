@@ -17,7 +17,7 @@ import { CouponManagement } from "@/components/pages/coupon-management";
 import { PromotionManagement } from "@/components/pages/promotion-management";
 import { useAuthStore } from "@/lib/authStore"
 import { Settings, LogOut } from "lucide-react"
-
+import { ProductImageManagement } from "@/components/pages/product-image-management"; // <-- 1. THÊM MỚI
 export default function AdminDashboardPage() {
   const { user, logout } = useAuthStore()
 
@@ -66,6 +66,7 @@ export default function AdminDashboardPage() {
       case "coupons": return <CouponManagement />;
       case "promotions": // Giữ nguyên "promotions"
         return <PromotionManagement />;
+      case "product-images": return <ProductImageManagement />; // <-- 2. THÊM MỚI
       case "customers": return <CustomerManagement />;
       case "employees": return <EmployeeManagement />;
       case "profile": return <Profile />;

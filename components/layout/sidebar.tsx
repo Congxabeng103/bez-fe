@@ -4,7 +4,7 @@ import { useState } from "react";
 import {
   LayoutDashboard, Package, Tag, Layers, ShoppingCart, Users,
   UserCheck, Activity, BarChart3, Menu, X, TicketPercent,
-  Percent, LogOut, Settings, LayoutList, Building
+  Percent, LogOut, Settings, LayoutList, Building, Images
 } from "lucide-react";
 import { useAuthStore } from "@/lib/authStore";
 
@@ -33,7 +33,12 @@ export function Sidebar({ currentPage, onPageChange }: SidebarProps) {
     
     // SỬA: Đã bỏ comment (//) và thêm 'STAFF'
     { id: "variants", label: "Biến thể", icon: Layers, roles: ['ADMIN', 'MANAGER', 'STAFF'] }, 
-    
+    { 
+      id: "product-images", 
+      label: "Quản lý Ảnh SP", 
+      icon: Images, 
+      roles: ['ADMIN', 'MANAGER', 'STAFF'] 
+    },
     { id: "coupons", label: "Coupons", icon: TicketPercent, roles: ['ADMIN', 'MANAGER', 'STAFF'] },
     { id: "promotions", label: "Khuyến mãi (%)", icon: Percent, roles: ['ADMIN', 'MANAGER', 'STAFF'] },
 
