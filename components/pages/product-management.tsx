@@ -74,6 +74,7 @@ interface ProductFormData {
   promotionId: string;
   active: boolean;
   options: OptionForm[]; 
+  price: number | string;
 }
 
 interface ProductOptionValueResponse { id: number; value: string; }
@@ -112,6 +113,7 @@ export function ProductManagement() {
   const [formData, setFormData] = useState<ProductFormData>({
     name: "", description: "", imageUrl: "", 
     categoryId: "", brandId: "", promotionId: "", 
+    price: "",
     active: true,
     options: [], 
   });
@@ -204,6 +206,7 @@ export function ProductManagement() {
     setFormData({ 
       name: "", description: "", imageUrl: "", 
       categoryId: "", brandId: "", promotionId: "", 
+      price: "",
       active: true,
       options: []
     });
@@ -245,6 +248,8 @@ export function ProductManagement() {
     const newErrors: ProductFormErrors = {};
     const name = formData.name.trim();
     const categoryId = formData.categoryId;
+    const price = Number(formData.price);
+    if (!price || price <= 0) { newErrors.price = "Giá sản phẩm là bắt buộc và phải lớn hơn 0."; }
     if (!name) { newErrors.name = "Tên sản phẩm là bắt buộc."; } 
     else if (name.length < 3) { newErrors.name = "Tên sản phẩm phải có ít nhất 3 ký tự."; }
     if (!categoryId) { newErrors.categoryId = "Vui lòng chọn danh mục."; }
@@ -282,6 +287,7 @@ export function ProductManagement() {
 
     const requestBody = {
       name: name, 
+      price: price,
       description: formData.description.trim(),
       imageUrl: formData.imageUrl || null,
       categoryId: formData.categoryId ? Number(formData.categoryId) : null,
@@ -347,6 +353,7 @@ export function ProductManagement() {
 
       setFormData({
         name: detail.product.name,
+        price: detail.product.price,
         description: detail.product.description || "",
         imageUrl: detail.product.imageUrl || "",
         categoryId: detail.product.categoryId ? String(detail.product.categoryId) : "",
@@ -415,6 +422,7 @@ export function ProductManagement() {
         const requestBody = { 
             name: product.name, description: product.description, imageUrl: product.imageUrl, 
             categoryId: product.categoryId, brandId: product.brandId,
+            price: product.price,
             promotionId: product.promotionId, active: true 
         };
         const result = await manualFetchApi(url, { method: "PUT", body: JSON.stringify(requestBody) });
@@ -498,8 +506,22 @@ export function ProductManagement() {
                   />
                   {formErrors.name && <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.name}</p>} 
                 </div>
-                
-                <Textarea placeholder="Mô tả sản phẩm" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })}/>
+                <div className="space-y-1.5"> 
+                  <Label htmlFor="productPrice" className={`text-xs ${formErrors.price ? 'text-destructive' : 'text-muted-foreground'}`}>Giá gốc (Dùng để Lọc/Sắp xếp) *</Label>
+                  <Input 
+                  id="productPrice"
+                  type="number"
+                  placeholder="Giá sản phẩm" 
+                  value={formData.price ?? ""} 
+                  onChange={(e) => {
+                  setFormData({ ...formData, price: e.target.value });
+                  if (formErrors.price) setFormErrors(prev => ({ ...prev, price: undefined })); 
+                  }}
+                  className={formErrors.price ? "border-destructive" : ""}
+                  />
+                  {formErrors.price && <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.price}</p>} 
+                  </div>
+                <Textarea placeholder="Mô tả sản phẩm" value={formData.description ?? ""} onChange={(e) => setFormData({ ...formData, description: e.target.value })}/>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* Category Select */}

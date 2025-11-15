@@ -42,7 +42,7 @@ export function ImageUpload({
     const formData = new FormData();
     formData.append("file", file);
     formData.append("upload_preset", UPLOAD_PRESET);
-    formData.append("phash", "true");
+    formData.append("phash", "true"); // 
     try {
       const response = await fetch(
         `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`,

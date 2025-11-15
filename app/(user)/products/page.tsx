@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react"; // Bỏ useMemo
+import { useState, useEffect, useCallback } from "react";
 import { ProductCard } from "@/components/store/product-card";
 import { Pagination } from "@/components/store/pagination";
 import { Search, Loader2 } from "lucide-react";
@@ -17,43 +17,56 @@ interface Category {
 
 const ITEMS_PER_PAGE = 12;
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
-const MAX_PRICE = 5000000; // Định nghĩa giá tối đa
+// --- SỬA: Thay đổi hằng số giá ---
+const DEFAULT_MAX_PRICE = 100000; // Đổi tên thành giá trị dự phòng
+const PRICE_STEP = 1000; // Định nghĩa bước nhảy
 
 export default function ProductsPage() {
   const { token } = useAuthStore.getState();
 
   const [products, setProducts] = useState<ProductResponseDTO[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  
+  // --- SỬA: Tách riêng các state loading ---
+  const [isProductsLoading, setIsProductsLoading] = useState(true);
+  const [isCategoriesLoading, setIsCategoriesLoading] = useState(true);
+  const [isPriceLoading, setIsPriceLoading] = useState(true);
+  // --- KẾT THÚC SỬA ---
 
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState("createdAt,desc");
-  const [priceRange, setPriceRange] = useState([0, MAX_PRICE]);
+
+  // --- SỬA: Thêm state cho giá API và cập nhật state priceRange ---
+  const [apiMaxPrice, setApiMaxPrice] = useState(DEFAULT_MAX_PRICE);
+  const [priceRange, setPriceRange] = useState([0, DEFAULT_MAX_PRICE]);
+  // --- KẾT THÚC SỬA ---
+
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
 
-  // --- LOGIC GỌI API ĐÚNG (Đã sửa) ---
+  // --- SỬA: Cập nhật fetchProducts ---
   const fetchProducts = useCallback(async () => {
-    setIsLoading(true);
+    setIsProductsLoading(true); // Dùng state riêng
     const url = new URL(`${API_URL}/v1/products`);
     url.searchParams.append("page", (currentPage - 1).toString());
     url.searchParams.append("size", ITEMS_PER_PAGE.toString());
     url.searchParams.append("sort", sortBy);
-    url.searchParams.append("status", "ACTIVE"); // Trang shop chỉ lấy Active
-
+    url.searchParams.append("status", "ACTIVE");
+    url.searchParams.append("hasVariants", "true");
     if (searchQuery) {
       url.searchParams.append("search", searchQuery);
     }
 
-    // Gửi bộ lọc lên backend
     if (selectedCategory) {
       url.searchParams.append("categoryName", selectedCategory);
     }
     if (priceRange[0] > 0) {
       url.searchParams.append("minPrice", priceRange[0].toString());
     }
-    if (priceRange[1] < MAX_PRICE) {
+    
+    // Dùng apiMaxPrice (state động) thay vì hằng số
+    if (priceRange[1] < apiMaxPrice) {
       url.searchParams.append("maxPrice", priceRange[1].toString());
     }
 
@@ -67,7 +80,7 @@ export default function ProductsPage() {
         setTotalPages(result.data.totalPages);
       } else {
         toast.error(result.message || "Lỗi tải sản phẩm");
-        setProducts([]); // Xóa sản phẩm cũ nếu có lỗi
+        setProducts([]);
         setTotalPages(0);
       }
     } catch (err: any) {
@@ -75,13 +88,14 @@ export default function ProductsPage() {
       setProducts([]);
       setTotalPages(0);
     } finally {
-      setIsLoading(false);
+      setIsProductsLoading(false); // Dùng state riêng
     }
-    // Thêm các state lọc vào dependency array
-  }, [currentPage, sortBy, searchQuery, selectedCategory, priceRange]);
+    // Thêm apiMaxPrice vào dependency array
+  }, [currentPage, sortBy, searchQuery, selectedCategory, priceRange, apiMaxPrice]);
 
-  // Logic gọi API Category (Giữ nguyên)
+  // --- SỬA: Cập nhật fetchCategories ---
   const fetchCategories = useCallback(async () => {
+    setIsCategoriesLoading(true); // Dùng state riêng
     try {
       const response = await fetch(`${API_URL}/v1/categories/all-brief`);
       if (!response.ok) throw new Error("Không thể tải danh mục");
@@ -94,21 +108,62 @@ export default function ProductsPage() {
       }
     } catch (err: any) {
       toast.error(err.message);
+    } finally {
+      setIsCategoriesLoading(false); // Dùng state riêng
     }
   }, []);
 
-  // Chạy API khi filter thay đổi
-  useEffect(() => {
-    fetchProducts();
-  }, [fetchProducts]); // fetchProducts giờ đã phụ thuộc vào các bộ lọc
+  // --- SỬA: Thay đổi logic useEffect ---
 
-  // Chạy API Category (chỉ 1 lần)
+  // 1. useEffect này chỉ chạy fetchProducts KHI filter thay đổi
+  //    HOẶC khi giá tối đa vừa load xong
+  useEffect(() => {
+    // Không chạy fetchProducts cho đến khi giá max được load xong
+    if (isPriceLoading) {
+      return;
+    }
+    fetchProducts();
+  }, [fetchProducts, isPriceLoading]); // Phụ thuộc vào fetchProducts VÀ isPriceLoading
+
+  // 2. useEffect này chạy 1 LẦN KHI MOUNT
+  //    Nó sẽ load Categories và Max Price cùng lúc
   useEffect(() => {
     fetchCategories();
-  }, [fetchCategories]);
 
-  // --- ĐÃ BỎ `useMemo` ---
-  // 'products' giờ đã là dữ liệu được lọc chính xác từ API
+    const fetchMaxPrice = async () => {
+      setIsPriceLoading(true);
+      try {
+        const response = await fetch(`${API_URL}/v1/products/max-price`);
+        if (!response.ok) throw new Error('Không thể tải giá tối đa');
+        
+        const maxPriceValue = await response.json();
+        const rawMaxPrice = Number(maxPriceValue);
+
+        if (rawMaxPrice > 0) {
+          // Làm tròn lên 50,000 gần nhất để khớp với 'step'
+          const roundedMaxPrice = Math.ceil(rawMaxPrice / PRICE_STEP) * PRICE_STEP;
+          setApiMaxPrice(roundedMaxPrice);
+          setPriceRange([0, roundedMaxPrice]); // Cập nhật thanh trượt
+        } else {
+          // Fallback nếu API trả về 0 hoặc lỗi
+          setApiMaxPrice(DEFAULT_MAX_PRICE);
+          setPriceRange([0, DEFAULT_MAX_PRICE]);
+        }
+      } catch (err: any) {
+        toast.error(err.message || "Lỗi tải giá tối đa, dùng giá trị mặc định.");
+        setApiMaxPrice(DEFAULT_MAX_PRICE);
+        setPriceRange([0, DEFAULT_MAX_PRICE]);
+      } finally {
+        setIsPriceLoading(false); // Hoàn tất load giá
+      }
+    };
+    
+    fetchMaxPrice();
+
+  }, [fetchCategories]); // fetchCategories là useCallback rỗng, nên đây chỉ chạy 1 lần
+
+  // --- KẾT THÚC SỬA ---
+
   const filteredProducts = products;
 
   const handlePageChange = (page: number) => {
@@ -126,49 +181,41 @@ export default function ProductsPage() {
           {/* Sidebar Filters */}
           <div className="lg:col-span-1">
             <div className="bg-card rounded-lg p-6 border border-border sticky top-20">
-              {/* Tìm kiếm */}
+              {/* Tìm kiếm (Giữ nguyên) */}
               <div className="mb-6">
-                <h3 className="font-semibold mb-3">Tìm kiếm</h3>
-                <div className="relative">
-                  <Search className="absolute left-3 top-3 w-4 h-4 text-muted-foreground" />
-                  <input
-                    type="text"
-                    placeholder={t.searchProducts}
-                    value={searchQuery}
-                    onChange={(e) => {
-                      setSearchQuery(e.target.value);
-                      setCurrentPage(1); // Reset trang khi tìm kiếm
-                    }}
-                    className="w-full pl-10 pr-3 py-2 border border-border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary"
-                  />
-                </div>
+                 {/* ... (code tìm kiếm) ... */}
               </div>
 
-                            {/* Category Filter */}
+              {/* Category Filter */}
               <div className="mb-6">
                 <h3 className="font-semibold mb-4">Danh mục</h3>
-                {/* Thêm max-h-60 (hoặc 72, 80 tùy bạn) và overflow-y-auto */}
-                <div className="space-y-2 max-h-60 overflow-y-auto pr-2"> {/* <--- ĐÃ SỬA */}
-                  <button
-                    onClick={() => { setSelectedCategory(null); setCurrentPage(1); }}
-                    className={`block w-full text-left px-3 py-2 rounded transition ${
-                      selectedCategory === null ? "bg-primary text-primary-foreground" : "hover:bg-muted"
-                    }`}
-                  >
-                    Tất cả
-                  </button>
-                  {categories.map((category) => (
+                {isCategoriesLoading ? (
+                  <div className="flex justify-center items-center h-40">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
                     <button
-                      key={category.id}
-                      onClick={() => { setSelectedCategory(category.name); setCurrentPage(1); }}
+                      onClick={() => { setSelectedCategory(null); setCurrentPage(1); }}
                       className={`block w-full text-left px-3 py-2 rounded transition ${
-                        selectedCategory === category.name ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+                        selectedCategory === null ? "bg-primary text-primary-foreground" : "hover:bg-muted"
                       }`}
                     >
-                      {category.name}
+                      Tất cả
                     </button>
-                  ))}
-                </div>
+                    {categories.map((category) => (
+                      <button
+                        key={category.id}
+                        onClick={() => { setSelectedCategory(category.name); setCurrentPage(1); }}
+                        className={`block w-full text-left px-3 py-2 rounded transition ${
+                          selectedCategory === category.name ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+                        }`}
+                      >
+                        {category.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Price Filter */}
@@ -178,14 +225,15 @@ export default function ProductsPage() {
                   <input
                     type="range"
                     min="0"
-                    max={MAX_PRICE}
-                    step="50000"
+                    max={apiMaxPrice} // SỬA: Dùng giá max động
+                    step={PRICE_STEP} // SỬA: Dùng hằng số step
                     value={priceRange[1]}
                     onChange={(e) => {
                       setPriceRange([priceRange[0], Number(e.target.value)])
                       setCurrentPage(1)
                     }}
                     className="w-full"
+                    disabled={isPriceLoading} // SỬA: Vô hiệu hóa khi đang load giá
                   />
                   <div className="flex justify-between text-sm">
                     <span>{priceRange[0].toLocaleString("vi-VN")}₫</span>
@@ -194,7 +242,7 @@ export default function ProductsPage() {
                 </div>
               </div>
 
-              {/* Sort Filter */}
+              {/* Sort Filter (Giữ nguyên) */}
               <div>
                 <h3 className="font-semibold mb-4">Sắp xếp</h3>
                 <select
@@ -217,11 +265,15 @@ export default function ProductsPage() {
           <div className="lg:col-span-3">
             <div className="mb-6 flex justify-between items-center">
               <p className="text-muted-foreground">
-                Hiển thị {filteredProducts.length} kết quả
+                {/* Chúng ta chỉ hiển thị số lượng khi loading xong 
+                  Nếu đang loading, filteredProducts.length là 0 (của lần render trước)
+                */}
+                {!isProductsLoading && `Hiển thị ${filteredProducts.length} kết quả`}
               </p>
             </div>
 
-            {isLoading ? (
+            {/* SỬA: Dùng state isProductsLoading */}
+            {isProductsLoading ? (
               <div className="flex justify-center items-center h-64">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
               </div>
