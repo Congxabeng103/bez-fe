@@ -1,10 +1,8 @@
-// (path: components/store/product-card.tsx)
 "use client"
 
 import Link from "next/link"
 import Image from "next/image"
-import { Star, Heart } from "lucide-react" // Đã xóa ShoppingCart
-// Đã xóa import Button và useCart để tránh lỗi
+import { Heart } from "lucide-react" // 1. Đã xóa Star
 import { useWishlist } from "@/hooks/use-wishlist"
 import { toast } from "sonner"
 import { ProductResponseDTO } from "@/types/productDTO";
@@ -14,10 +12,7 @@ interface ProductCardProps {
 }
 
 export function ProductCard({ product }: ProductCardProps) {
-  // Đã xóa const { addToCart } = useCart()
   const { isInWishlist, addToWishlist, removeFromWishlist } = useWishlist()
-
-  // Đã xóa hàm handleAddToCart gây lỗi
 
   const handleWishlistToggle = (e: React.MouseEvent) => {
     e.preventDefault() // Ngăn Link chạy khi bấm tim
@@ -31,7 +26,7 @@ export function ProductCard({ product }: ProductCardProps) {
     }
   }
   
-  const productRating = 4.5; 
+  // 2. Đã xóa mock data 'productRating'
 
   return (
     <Link href={`/products/${product.id}`} className="group relative block overflow-hidden rounded-lg bg-card border border-border shadow-sm hover:shadow-lg transition-shadow">
@@ -76,13 +71,9 @@ export function ProductCard({ product }: ProductCardProps) {
             <p className="font-bold text-lg text-foreground">{product.price.toLocaleString('vi-VN')}₫</p>
         )}
         
-        {/* Footer: Chỉ còn Rating, nút Add to Cart đã bị xóa */}
-        <div className="flex items-center mt-3">
-          <div className="flex items-center gap-1">
-            <Star className="w-4 h-4 text-primary fill-primary" />
-            <span className="text-sm font-medium">{productRating}</span> 
-            <span className="text-sm text-muted-foreground ml-1">(0 đánh giá)</span> 
-          </div>
+        {/* 3. Đã xóa phần Rating và thay bằng 1 div giữ chỗ */}
+        <div className="mt-3 h-5">
+          {/* Trống - Dùng để giữ chiều cao card đồng đều */}
         </div>
       </div>
     </Link>

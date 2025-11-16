@@ -5,13 +5,12 @@ import Link from "next/link";
 import { CheckCircle, XCircle, Loader2 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useCart } from "@/hooks/use-cart";
-import { useEffect, useState, Suspense, useRef } from "react"; // 1. Thêm useRef
+import { useEffect, useState, Suspense, useRef } from "react";
 import { useAuthStore } from "@/lib/authStore";
 
 // --- Helper API Call (Giữ nguyên) ---
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 const manualFetchApi = async (url: string, options: RequestInit = {}) => {
-  // Lấy token từ store
   const { token } = useAuthStore.getState();
   if (!token) throw new Error("Bạn cần đăng nhập");
 
@@ -29,6 +28,16 @@ const manualFetchApi = async (url: string, options: RequestInit = {}) => {
 };
 // --- Hết Helper ---
 
+// --- SỬA 1: THÊM DTO ĐƠN HÀNG TỐI GIẢN ---
+// Chúng ta cần DTO này để lấy 'orderNumber'
+interface SimpleOrderDTO {
+  id: number;
+  orderNumber: string; // <-- Đây là Mã Đơn Hàng (DH-123)
+  paymentStatus: 'PAID' | 'PENDING' | 'FAILED';
+  // (Thêm các trường khác nếu bạn cần, nhưng 'orderNumber' là bắt buộc)
+}
+
+
 function ConfirmationContent() {
   const searchParams = useSearchParams();
   const orderId = searchParams.get("orderId");
@@ -41,21 +50,14 @@ function ConfirmationContent() {
   const [orderStatus, setOrderStatus] = useState<
     'POLLING' | 'PAID' | 'FAILED'
   >('POLLING');
-
-  // --- SỬA LOGIC POLLING ---
   
-  // 1. Xóa retryCount
-  // const [retryCount, setRetryCount] = useState(0);
+  // --- SỬA 2: THÊM STATE ĐỂ LƯU THÔNG TIN ĐƠN HÀNG ---
+  const [order, setOrder] = useState<SimpleOrderDTO | null>(null);
 
-  // 2. Thêm Ref để lưu ID của timeout
   const pollingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
-  // 3. Thêm Ref để đảm bảo polling chỉ chạy 1 lần
   const isPollingActive = useRef(false);
 
-  // 4. Xóa useCallback(pollOrderStatus) cũ
-  
-  // 5. Viết lại hoàn toàn useEffect
+  // --- SỬA 3: VIẾT LẠI HOÀN TOÀN useEffect ---
   useEffect(() => {
     // Ưu tiên 1: VNPAY báo lỗi ngay lập tức
     if (urlStatusHint === 'failed') {
@@ -63,32 +65,22 @@ function ConfirmationContent() {
       return; // Dừng
     }
 
-    // Ưu tiên 2: Đây là đơn COD, báo thành công ngay!
-    if (paymentMethod === 'COD') {
-      setOrderStatus('PAID');
-      fetchCart(); // Cập nhật icon giỏ hàng
-      return; // Dừng, KHÔNG POLLING
-    }
-    
-    // Ưu tiên 3: Đơn VNPAY, bắt đầu Polling
-    
     // Kiểm tra các điều kiện cần thiết
     if (!orderId || !token) {
       if (!orderId) setOrderStatus('FAILED'); // Lỗi URL, không có orderId
       return;
     }
-
+    
     // Đảm bảo polling chỉ chạy 1 lần duy nhất
     if (isPollingActive.current) return;
     isPollingActive.current = true;
-
+    
     // Đặt thời hạn polling (ví dụ: 2 phút)
-    // IPN của VNPay có thể mất 30-60 giây
     const pollingDeadline = Date.now() + (2 * 60 * 1000); // 2 phút
 
     const poll = async () => {
-      // 1. Kiểm tra xem còn thời gian không
-      if (Date.now() > pollingDeadline) {
+      // 1. Kiểm tra xem còn thời gian không (chỉ áp dụng cho VNPAY)
+      if (paymentMethod !== 'COD' && Date.now() > pollingDeadline) {
         setOrderStatus('FAILED'); // Hết giờ, báo thất bại
         isPollingActive.current = false;
         return;
@@ -97,22 +89,32 @@ function ConfirmationContent() {
       // 2. Fetch trạng thái
       try {
         const response = await manualFetchApi(`/v1/orders/my-orders/${orderId}`);
-        const paymentStatus = response.data.paymentStatus;
+        const orderData = response.data as SimpleOrderDTO;
+        
+        // --- LƯU LẠI THÔNG TIN ĐƠN HÀNG ---
+        setOrder(orderData); // <-- Lưu data để lấy orderNumber
 
-        if (paymentStatus === 'PAID') {
-          setOrderStatus('PAID');
-          fetchCart();
-          isPollingActive.current = false;
-          // Thành công, dừng polling
+        // 3. Xử lý trạng thái
+        if (paymentMethod === 'COD') {
+            // Đơn COD luôn thành công, chỉ cần lấy data
+            setOrderStatus('PAID');
+            fetchCart();
+            isPollingActive.current = false;
+        
+        } else if (orderData.paymentStatus === 'PAID') {
+            // Đơn VNPAY đã thanh toán
+            setOrderStatus('PAID');
+            fetchCart();
+            isPollingActive.current = false;
 
-        } else if (paymentStatus === 'FAILED') {
-          setOrderStatus('FAILED');
-          isPollingActive.current = false;
-          // Thất bại, dừng polling
-
+        } else if (orderData.paymentStatus === 'FAILED') {
+            // Đơn VNPAY thất bại
+            setOrderStatus('FAILED');
+            isPollingActive.current = false;
+        
         } else {
-          // Vẫn là 'PENDING', tiếp tục poll
-          pollingTimeoutRef.current = setTimeout(poll, 3000); // Thử lại sau 3s
+            // Đơn VNPAY vẫn là 'PENDING', tiếp tục poll
+            pollingTimeoutRef.current = setTimeout(poll, 3000); // Thử lại sau 3s
         }
       } catch (error) {
         console.error("Lỗi khi polling trạng thái:", error);
@@ -121,25 +123,24 @@ function ConfirmationContent() {
       }
     };
 
-    // Bắt đầu polling lần đầu tiên
+    // Bắt đầu polling/fetch lần đầu tiên
     poll();
 
-    // Hàm dọn dẹp (Cleanup):
-    // Rất quan trọng: Nếu người dùng rời khỏi trang, phải dừng polling
+    // Hàm dọn dẹp (Cleanup)
     return () => {
-      isPollingActive.current = false; // Đánh dấu là đã dừng
+      isPollingActive.current = false;
       if (pollingTimeoutRef.current) {
         clearTimeout(pollingTimeoutRef.current);
       }
     };
 
-  }, [orderId, token, urlStatusHint, paymentMethod, fetchCart]); // Dependencies
+  }, [orderId, token, urlStatusHint, paymentMethod, fetchCart]);
   // --- KẾT THÚC SỬA LOGIC POLLING ---
 
 
-  // --- Logic Render (Giữ nguyên) ---
+  // --- Logic Render ---
 
-  // Trạng thái "Đang chờ IPN"
+  // Trạng thái "Đang chờ" (Chung cho cả COD và VNPAY)
   if (orderStatus === 'POLLING') {
     return (
       <div className="text-center mb-12">
@@ -148,7 +149,7 @@ function ConfirmationContent() {
         </div>
         <h1 className="text-4xl font-bold mb-4">Đang xác nhận...</h1>
         <p className="text-muted-foreground text-lg">
-          Hệ thống đang xác nhận thanh toán. Vui lòng chờ trong giây lát...
+          Hệ thống đang xác nhận đơn hàng. Vui lòng chờ trong giây lát...
         </p>
       </div>
     );
@@ -164,12 +165,19 @@ function ConfirmationContent() {
           </div>
           <h1 className="text-4xl font-bold mb-4">Đặt hàng thất bại</h1>
           <p className="text-muted-foreground text-lg">
-            Đơn hàng #{orderId} của bạn chưa được thanh toán hoặc đã xảy ra lỗi.
+            Đơn hàng của bạn chưa được thanh toán hoặc đã xảy ra lỗi.
           </p>
+          {/* Hiển thị Mã ĐH (nếu có) hoặc ID (nếu fetch lỗi) */}
+          {order ? (
+             <p className="text-lg font-semibold">Mã đơn hàng: {order.orderNumber}</p>
+          ) : (
+             <p className="text-lg font-semibold">Mã đơn hàng: #{orderId}</p>
+          )}
         </div>
         <div className="flex flex-col sm:flex-row gap-4">
-          <Link href={`/account/orders/${orderId}`} className="flex-1">
-            <Button variant="outline" className="w-full bg-transparent">Thử lại thanh toán</Button>
+          {/* SỬA 4: Link trỏ đến /orders/id */}
+          <Link href={`/orders/${orderId}`} className="flex-1">
+            <Button variant="outline" className="w-full bg-transparent">Xem chi tiết đơn hàng</Button>
           </Link>
           <Link href="/products" className="flex-1">
             <Button className="w-full">Tiếp tục mua sắm</Button>
@@ -180,7 +188,7 @@ function ConfirmationContent() {
   }
 
   // Trạng thái Thành công (Dùng chung cho cả COD và VNPAY)
-  if (orderStatus === 'PAID') {
+  if (orderStatus === 'PAID' && order) { // Phải có 'order'
     return (
       <>
         <div className="text-center mb-12">
@@ -195,7 +203,10 @@ function ConfirmationContent() {
           <div className="grid grid-cols-1 gap-8 mb-8">
             <div>
               <p className="text-muted-foreground text-sm mb-2">Mã đơn hàng</p>
-              <p className="text-2xl font-bold">#{orderId}</p>
+              
+              {/* --- SỬA 5: HIỂN THỊ MÃ ĐƠN HÀNG --- */}
+              <p className="text-2xl font-bold">{order.orderNumber}</p>
+              
             </div>
           </div>
 
@@ -220,7 +231,9 @@ function ConfirmationContent() {
               Tiếp tục mua sắm
             </Button>
           </Link>
-          <Link href="/account/orders" className="flex-1">
+          
+          {/* --- SỬA 6: LINK TRỎ ĐẾN /orders/id --- */}
+          <Link href={`/orders/${order.id}`} className="flex-1">
             <Button className="w-full bg-primary text-primary-foreground hover:bg-primary/90">Xem đơn hàng</Button>
           </Link>
         </div>
@@ -228,8 +241,15 @@ function ConfirmationContent() {
     );
   }
 
-  // Fallback
-  return null;
+  // Fallback (Nếu bị lỗi không mong muốn)
+  return (
+    <div className="text-center mb-12">
+        <h1 className="text-4xl font-bold mb-4">Đã xảy ra lỗi</h1>
+        <p className="text-muted-foreground text-lg">
+          Không thể tải trạng thái đơn hàng.
+        </p>
+    </div>
+  );
 }
 
 // Bọc component chính trong Suspense (Giữ nguyên)

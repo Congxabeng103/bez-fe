@@ -1,29 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { ShoppingCart, Search, Menu, X, User, LogOut } from "lucide-react";
-import { useState, useEffect } from "react"; // 1. Import useEffect
+// 1. Thêm 'ShoppingBag'
+import { ShoppingCart, Search, Menu, X, User, LogOut, ShoppingBag } from "lucide-react"; 
+import { useState, useEffect } from "react";
 import { useCart } from "@/hooks/use-cart";
-// --- 2. SỬA IMPORT AUTH ---
-import { useAuthStore } from "@/lib/authStore"; // Dùng Zustand
-// ---
+import { useAuthStore } from "@/lib/authStore";
 import { products } from "@/lib/products";
-// (Xóa AuthModal)
 import { translations as t } from "@/lib/translations";
-import { Button } from "@/components/ui/button"; // <-- Import Button
+import { Button } from "@/components/ui/button";
 
 export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  // const [isAuthModalOpen, setIsAuthModalOpen] = useState(false); // (Xóa)
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
-const { cart, isLoaded: isCartLoaded } = useCart();  // --- 3. SỬA LOGIC AUTH ---
-  // Dùng hook (thay vì getState) để component tự re-render khi đăng nhập/đăng xuất
+  
+  const { cart, isLoaded: isCartLoaded } = useCart(); 
   const { isAuthenticated: isLoggedIn, user, logout } = useAuthStore(); 
-const totalItems = cart.length;  // State 'isLoaded' dùng để tránh lỗi Hydration (Server-side rendering)
-  // Server sẽ render (isLoaded=false), Client render (isLoaded=false), 
-  // sau đó useEffect chạy (isLoaded=true) và hiện đúng UI
+  const totalItems = cart.length; 
+  
   const [isLoaded, setIsLoaded] = useState(false);
   useEffect(() => {
     setIsLoaded(true);
@@ -40,7 +36,6 @@ const totalItems = cart.length;  // State 'isLoaded' dùng để tránh lỗi Hy
     : [];
 
   return (
-    // Sửa lỗi 1: Xóa thẻ <></> (fragment) thừa
     <header className="sticky top-0 z-50 bg-background border-b border-border">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
@@ -87,14 +82,14 @@ const totalItems = cart.length;  // State 'isLoaded' dùng để tránh lỗi Hy
 
             <Link href="/cart" className="relative p-2 hover:bg-muted rounded-lg transition">
               <ShoppingCart className="w-5 h-5" />
-              {totalItems > 0 && (
+              {isLoaded && isCartLoaded && totalItems > 0 && (
                 <span className="absolute top-0 right-0 bg-primary text-primary-foreground text-xs rounded-full w-5 h-5 flex items-center justify-center">
                   {totalItems}
                 </span>
               )}
             </Link>
 
-            {/* --- SỬA 4: Logic Auth UI (Xóa 'passHref') --- */}
+            {/* --- Logic Auth UI --- */}
             {isLoaded && ( 
               <div className="relative">
                 {isLoggedIn && user ? (
@@ -103,12 +98,17 @@ const totalItems = cart.length;  // State 'isLoaded' dùng để tránh lỗi Hy
                     onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
                     className="p-2 hover:bg-muted rounded-lg transition flex items-center gap-2"
                   >
-                    <div className="w-6 h-6 bg-primary rounded-full flex items-center justify-center text-primary-foreground text-xs font-bold">
-                      {user.name.charAt(0).toUpperCase()}
-                    </div>
+                    {/* --- SỬA: ĐỒNG BỘ AVATAR --- */}
+                    <img
+                      src={user.avatar || "/placeholder.svg"}
+                      alt={user.name || "Avatar"}
+                      className="w-6 h-6 rounded-full object-cover" 
+                      onError={(e) => { (e.target as HTMLImageElement).src = "/placeholder.svg"; }}
+                    />
+                    {/* --- KẾT THÚC SỬA --- */}
                   </button>
                 ) : (
-                  // Nếu CHƯA ĐĂNG NHẬP (Hiển thị 2 Nút trên Desktop)
+                  // Nếu CHƯA ĐĂNG NHẬP
                   <>
                     <div className="hidden sm:flex items-center gap-2">
                       <Link href="/login">
@@ -118,8 +118,6 @@ const totalItems = cart.length;  // State 'isLoaded' dùng để tránh lỗi Hy
                           <Button size="sm">{t.register}</Button>
                       </Link>
                     </div>
-                    
-                    {/* Nút Icon User (Chỉ hiển thị trên Mobile khi chưa đăng nhập) */}
                     <Link href="/login" className="sm:hidden p-2 hover:bg-muted rounded-lg transition">
                         <User className="w-5 h-5" />
                     </Link>
@@ -135,12 +133,24 @@ const totalItems = cart.length;  // State 'isLoaded' dùng để tránh lỗi Hy
                     </div>
                     <Link
                       href="/profile" 
-                      className="block px-4 py-2 hover:bg-muted transition"
+                      className="block w-full text-left px-4 py-2 hover:bg-muted transition flex items-center gap-2"
                       onClick={() => setIsUserMenuOpen(false)}
                     >
+                      <User className="w-4 h-4" /> 
                       {t.myProfile}
                     </Link>
-                    {/* (Các Link Orders, Wishlist...) */}
+                    
+                    {/* --- SỬA: THÊM LINK "ĐƠN HÀNG CỦA TÔI" --- */}
+                    <Link
+                      href="/orders" // Link đến trang đơn hàng
+                      className="block w-full text-left px-4 py-2 hover:bg-muted transition flex items-center gap-2"
+                      onClick={() => setIsUserMenuOpen(false)}
+                    >
+                      <ShoppingBag className="w-4 h-4" /> 
+                      Đơn hàng của tôi
+                    </Link>
+                    {/* --- KẾT THÚC SỬA --- */}
+
                     <button
                       onClick={() => {
                         logout()
@@ -155,7 +165,7 @@ const totalItems = cart.length;  // State 'isLoaded' dùng để tránh lỗi Hy
                 )}
               </div>
             )}
-            {/* --- KẾT THÚC SỬA 4 --- */}
+            {/* --- KẾT THÚC Logic Auth UI --- */}
 
             {/* Mobile Menu Button */}
             <button
@@ -166,27 +176,28 @@ const totalItems = cart.length;  // State 'isLoaded' dùng để tránh lỗi Hy
             </button>
           </div>
         </div>
-
-        {/* Mobile Navigation */}
-        {isMenuOpen && (
-          <nav className="md:hidden pb-4 flex flex-col gap-2">
-            <Link href="/" className="px-4 py-2 hover:bg-muted rounded transition">
-              {t.home}
-            </Link>
-            <Link href="/products" className="px-4 py-2 hover:bg-muted rounded transition">
-              {t.shop}
-            </Link>
-            <Link href="/about" className="px-4 py-2 hover:bg-muted rounded transition">
-              {t.about}
-            </Link>
-            <Link href="/contact" className="px-4 py-2 hover:bg-muted rounded transition">
-              {t.contact}
-            </Link>
-          </nav>
-        )}
       </div>
+
+      {/* Mobile Navigation */}
+      {isMenuOpen && (
+        <nav className="md:hidden pb-4 flex flex-col gap-2">
+          <Link href="/" className="px-4 py-2 hover:bg-muted rounded transition">
+            {t.home}
+          </Link>
+          <Link href="/products" className="px-4 py-2 hover:bg-muted rounded transition">
+            {t.shop}
+          </Link>
+          <Link href="/about" className="px-4 py-2 hover:bg-muted rounded transition">
+            {t.about}
+          </Link>
+          <Link href="/contact" className="px-4 py-2 hover:bg-muted rounded transition">
+            {t.contact}
+          </Link>
+        </nav>
+      )}
+      
+      {/* --- SỬA: XÓA THẺ </div> THỪA Ở ĐÂY --- */}
+      
     </header>
-    // --- SỬA 5: XÓA AUTH MODAL ---
-    // (Không cần gọi AuthModal ở đây nữa)
   );
 }

@@ -490,8 +490,19 @@ export function ProductManagement() {
                 <CardTitle className="text-base font-semibold">1. Thông tin cơ bản</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <ImageUpload value={formData.imageUrl || ""} onChange={(value) => setFormData({ ...formData, imageUrl: value })} label="Hình ảnh sản phẩm (URL)"/>
-                
+                <div className="space-y-1.5">
+        {/* Label bên ngoài để không bị kéo dãn */}
+              <Label htmlFor="productImageUrl" className="block text-sm font-medium text-muted-foreground">
+                  Hình ảnh sản phẩm (URL)
+              </Label> 
+              <ImageUpload 
+                  value={formData.imageUrl || ""} 
+                  onChange={(value) => setFormData({ ...formData, imageUrl: value })} 
+                  label="" // Tắt label bên trong ImageUpload
+                  className="w-32 h-32" // Giới hạn kích thước (Giả sử bạn muốn 32x32)
+              />
+              {/* Lưu ý: Nếu bạn muốn ảnh hiển thị kích thước lớn hơn, hãy thay w-32 h-32 bằng w-40 h-40 hoặc tương tự */}
+          </div>
                 <div className="space-y-1.5"> 
                   <Label htmlFor="productName" className={`text-xs ${formErrors.name ? 'text-destructive' : 'text-muted-foreground'}`}>Tên sản phẩm *</Label>
                   <Input 

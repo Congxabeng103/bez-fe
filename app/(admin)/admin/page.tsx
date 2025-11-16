@@ -93,8 +93,8 @@ export default function AdminDashboardPage() {
               <img
                 src={user?.avatar || "/placeholder.svg"}
                 alt={user?.name || "User"}
-                className="w-8 h-8 rounded-full"
-              />
+                className="w-8 h-8 rounded-full object-cover" // <--- ĐÃ THÊM object-cover
+              />  
               <span className="text-sm font-medium">{user?.name}</span>
             </button>
 

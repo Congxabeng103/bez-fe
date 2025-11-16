@@ -280,11 +280,18 @@ export function CategoryManagement() {
           </CardHeader>
           <CardContent className="pt-6 space-y-5">
             
-            <ImageUpload 
-              value={formData.imageUrl || ""} 
-              onChange={(value) => setFormData({ ...formData, imageUrl: value })} 
-              label="Hình ảnh danh mục (URL)"
-            />
+          <div className="space-y-1.5">
+                <Label htmlFor="categoryImageUrl" className="block text-sm font-medium text-muted-foreground">
+                    Hình ảnh danh mục (URL)
+                </Label> 
+                <ImageUpload 
+                    value={formData.imageUrl || ""} 
+                    onChange={(value) => setFormData({ ...formData, imageUrl: value })} 
+                    label="" // Tắt label bên trong ImageUpload
+                    className="w-24 h-24" // Giới hạn kích thước
+                />
+                {/* {formErrors.imageUrl && <p className="text-xs text-destructive -mt-3 ml-1">{formErrors.imageUrl}</p>} */}
+            </div>
             
             <div className="space-y-1.5">
               <Label htmlFor="categoryName" className={`text-xs ${formErrors.name ? 'text-destructive' : 'text-muted-foreground'}`}>Tên danh mục *</Label>

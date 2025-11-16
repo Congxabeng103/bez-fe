@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button"; // Đã có import này
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -130,10 +130,13 @@ export function CouponManagement() {
     setCouponFormData({ code: "", description: "", discountValue: "", maxDiscountAmount: null, minOrderAmount: null, usageLimit: null, startDate: "", endDate: "", active: true });
   }
 
-  // Hàm Validate (cho inline)
+  // (HÀM ĐÃ SỬA) Hàm Validate (cho inline)
   const validateForm = (): CouponFormErrors => {
     const newErrors: CouponFormErrors = {};
-    const { code, discountValue, startDate, endDate, maxDiscountAmount, minOrderAmount, usageLimit } = couponFormData;
+    const { code, discountValue, startDate, endDate, maxDiscountAmount, minOrderAmount, usageLimit, active } = couponFormData;
+
+    // Lấy ngày hôm nay (dạng "YYYY-MM-DD")
+    const todayStr = new Date().toISOString().split('T')[0];
 
     if (!code.trim()) {
       newErrors.code = "Mã coupon không được để trống.";
@@ -147,9 +150,14 @@ export function CouponManagement() {
     }
     if (!endDate) {
       newErrors.endDate = "Vui lòng chọn ngày kết thúc.";
-    } else if (startDate && startDate >= endDate) {
-      newErrors.endDate = "Ngày kết thúc phải sau ngày bắt đầu.";
+    } else if (startDate && startDate > endDate) { // <-- (SỬA LỖI 1) Đổi từ '>=' thành '>'
+      newErrors.endDate = "Ngày kết thúc phải sau hoặc trùng với ngày bắt đầu.";
+    } else if (active && endDate < todayStr) {
+      // (SỬA LỖI 2) Đổi thông báo cho rõ ràng hơn
+      newErrors.endDate = "Nếu muốn kích hoạt (active), ngày kết thúc không được ở trong quá khứ.";
     }
+    
+    // (Validate khác giữ nguyên)
     const maxDiscNum = maxDiscountAmount ? Number(maxDiscountAmount) : null;
     if (maxDiscountAmount && (isNaN(maxDiscNum!) || maxDiscNum! <= 0)) {
       newErrors.maxDiscountAmount = "Giảm tối đa không hợp lệ (phải là số > 0).";
@@ -252,7 +260,7 @@ export function CouponManagement() {
     setDialogState({ isOpen: false, action: null, coupon: null });
   };
 
-  // Hàm thực thi hành động sau khi xác nhận
+  // (Hàm này đã đúng logic)
   const handleConfirmAction = async () => {
     const { action, coupon } = dialogState;
     if (!coupon || !canEdit) {
@@ -271,6 +279,17 @@ export function CouponManagement() {
       } 
       
       else if (action === 'reactivate') {
+        
+        // (Kiểm tra ngày hết hạn khi "Kích hoạt lại")
+        const todayStr = new Date().toISOString().split('T')[0];
+        
+        if (coupon.endDate < todayStr) {
+          toast.error(`Kích hoạt thất bại: Coupon "${coupon.code}" đã hết hạn vào ngày ${coupon.endDate}.`);
+          toast.info("Vui lòng bấm 'Sửa' (Edit) để gia hạn ngày kết thúc trước.");
+          closeDialog();
+          return;
+        }
+
         const url = `/v1/coupons/${coupon.id}`;
         const requestBody = {
           code: coupon.code, description: coupon.description,
@@ -309,7 +328,7 @@ export function CouponManagement() {
   // --- JSX ---
   return (
     <div className="p-4 sm:p-6 space-y-6">
-      {/* ... (Phần tiêu đề và nút Thêm Coupon) ... */}
+      {/* Tiêu đề và nút Thêm Coupon */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Quản lý Coupons</h1>
@@ -471,7 +490,6 @@ export function CouponManagement() {
 
       {/* --- Danh sách Coupons --- */}
       <Card className="shadow-sm">
-        {/* ... (CardHeader và Tabs không đổi) ... */}
         <CardHeader>
           <CardTitle className="text-xl font-semibold">Danh sách Coupons</CardTitle>
           <Tabs value={filterStatus} onValueChange={handleTabChange} className="mt-4">
@@ -493,7 +511,6 @@ export function CouponManagement() {
               (
                 <>
                   <div className="overflow-x-auto">
-                    {/* ... (Table <thead> không đổi) ... */}
                     <table className="w-full text-sm">
                       <thead className="bg-muted/30">
                         <tr className="border-b">
@@ -513,7 +530,6 @@ export function CouponManagement() {
                       <tbody>
                         {coupons.map((coupon) => (
                           <tr key={coupon.id} className={`border-b last:border-b-0 hover:bg-muted/20 transition-colors ${!coupon.active ? 'opacity-60 bg-gray-50 dark:bg-gray-900/30' : ''}`}>
-                            {/* ... (Các <td> dữ liệu không đổi) ... */}
                             <td className="py-2 px-3 font-mono font-medium text-foreground">{coupon.code}</td>
                             <td className="py-2 px-3 text-right font-medium">{coupon.discountValue}%</td>
                             <td className="py-2 px-3 text-right text-muted-foreground">{coupon.maxDiscountAmount ? `${coupon.maxDiscountAmount.toLocaleString('vi-VN')}₫` : "-"}</td>
@@ -527,7 +543,7 @@ export function CouponManagement() {
                               </span>
                             </td>
                             
-                            {/* --- Các nút hành động (onClick đã cập nhật) --- */}
+                            {/* Các nút hành động */}
                             {canEdit && (
                               <td className="py-2 px-3">
                                 <div className="flex gap-1.5 justify-center">
@@ -578,7 +594,7 @@ export function CouponManagement() {
               )}
         </CardContent>
 
-        {/* === JSX CHO ALERT DIALOG (ĐÃ SỬA LỖI STYLE NÚT) === */}
+        {/* === JSX CHO ALERT DIALOG === */}
         <AlertDialog open={dialogState.isOpen} onOpenChange={(open) => !open && closeDialog()}>
           <AlertDialogContent>
             <AlertDialogHeader>
@@ -600,12 +616,9 @@ export function CouponManagement() {
             <AlertDialogFooter>
               <AlertDialogCancel onClick={closeDialog}>Hủy</AlertDialogCancel>
               
-              {/* --- ĐÂY LÀ KHỐI ĐÃ SỬA --- */}
               <AlertDialogAction asChild>
                 <Button
                   onClick={handleConfirmAction}
-                  // Áp dụng variant 'destructive' (màu đỏ) cho cả 2 hành động 'delete'
-                  // và 'default' (màu primary) cho 'reactivate'
                   variant={
                     (dialogState.action === 'delete' || dialogState.action === 'permanentDelete') 
                     ? "destructive" 
@@ -617,12 +630,9 @@ export function CouponManagement() {
                   {dialogState.action === 'permanentDelete' && "Xóa vĩnh viễn"}
                 </Button>
               </AlertDialogAction>
-              {/* --- KẾT THÚC KHỐI SỬA --- */}
-
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-        {/* ======================================= */}
 
       </Card>
     </div>

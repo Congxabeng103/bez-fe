@@ -3,17 +3,17 @@
 "use client";
 
 import { useCart } from "@/hooks/use-cart";
-import { CartItemComponent } from "@/components/store/cart-item"; // Import component
+import { CartItemComponent } from "@/components/store/cart-item";
 import { Button } from "@/components/ui/button";
-import Link from "next/link";
+import Link from "next/link"; // (Vẫn giữ cho nút "Tiếp tục mua sắm")
 import { ArrowLeft, Loader2 } from "lucide-react";
-import { translations as t } from "@/lib/translations"; // (Giả sử bạn có file này)
+import { translations as t } from "@/lib/translations"; 
 
 export default function CartPage() {
   const {
     cart,
-    isLoaded,     // <-- Lấy thêm
-    isMutating,   // <-- Lấy thêm
+    isLoaded,
+    isMutating,
     removeFromCart,
     updateQuantity,
     toggleSelected,
@@ -24,12 +24,12 @@ export default function CartPage() {
     getSelectedCount,
   } = useCart();
 
-  const total = getTotalPrice(); // Hook đã dùng currentPrice
+  const total = getTotalPrice();
   const selectedCount = getSelectedCount();
   const shipping = selectedCount > 0 ? 30000 : 0;
-  const grandTotal = total + shipping ;
+  const grandTotal = total + shipping;
 
-  // --- THÊM STATE LOADING ---
+  // (Code Loading - Giữ nguyên)
   if (!isLoaded) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -38,7 +38,7 @@ export default function CartPage() {
     );
   }
 
-  // --- TRẠNG THÁI GIỎ HÀNG RỖNG ---
+  // (Code Giỏ hàng rỗng - Giữ nguyên)
   if (cart.length === 0) {
     return (
       <div className="min-h-screen bg-background">
@@ -58,6 +58,15 @@ export default function CartPage() {
     );
   }
 
+  // --- BƯỚC 1: THÊM HÀM NÀY ĐỂ BUỘC TẢI LẠI TRANG ---
+  const handleCheckout = () => {
+    if (selectedCount > 0) {
+      // Dùng window.location.href để buộc tải lại trang (giống F5)
+      // và xóa sạch Router Cache.
+      window.location.href = "/checkout";
+    }
+  };
+
   // --- GIỎ HÀNG CÓ SẢN PHẨM ---
   return (
     <div className="min-h-screen bg-background">
@@ -65,8 +74,7 @@ export default function CartPage() {
         <h1 className="text-4xl font-bold mb-8">{t.shoppingCart}</h1>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Cart Items */}
-          {/* Thêm isMutating để làm mờ khi đang cập nhật */}
+          {/* (Cột trái - Cart Items - Giữ nguyên) */}
           <div className={`lg:col-span-2 ${isMutating ? 'opacity-50 pointer-events-none' : ''}`}>
             <div className="bg-card rounded-lg border border-border p-6">
               {/* Select All */}
@@ -84,18 +92,16 @@ export default function CartPage() {
                 </div>
               </div>
 
-              {/* --- SỬA LOGIC LẶP --- */}
+              {/* Logic lặp */}
               {cart.map((item) => (
                 <CartItemComponent
-                  key={item.variantId} // Sửa: Dùng variantId làm key
+                  key={item.variantId} 
                   item={item}
-                  // Sửa: Truyền hàm với variantId
                   onUpdateQuantity={(quantity) => updateQuantity(item.variantId, quantity)}
                   onRemove={() => removeFromCart(item.variantId)}
                   onToggleSelected={() => toggleSelected(item.variantId)}
                 />
               ))}
-              {/* --- KẾT THÚC SỬA --- */}
               
             </div>
 
@@ -109,10 +115,11 @@ export default function CartPage() {
             </div>
           </div>
 
-          {/* Order Summary (Giữ nguyên) */}
+          {/* (Cột phải - Order Summary) */}
           <div className="lg:col-span-1">
             <div className="bg-card rounded-lg border border-border p-6 sticky top-20">
               <h2 className="text-2xl font-bold mb-6">{t.orderSummary}</h2>
+              {/* (Chi tiết giá - Giữ nguyên) */}
               <div className="space-y-4 mb-6">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">{t.subtotal}</span>
@@ -121,20 +128,34 @@ export default function CartPage() {
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">{t.shipping}</span>
                   <span className="font-semibold">{shipping.toLocaleString("vi-VN")}₫</span>
-                </div>               
+                </div>
                 <div className="border-t border-border pt-4 flex justify-between">
                   <span className="font-bold">{t.total}</span>
                   <span className="text-2xl font-bold text-primary">{grandTotal.toLocaleString("vi-VN")}₫</span>
                 </div>
               </div>
+
+              {/* --- BƯỚC 2: XÓA <Link> VÀ THAY BẰNG <Button> với onClick --- */}
+              
+              {/* XÓA CÁI NÀY:
               <Link href={selectedCount > 0 ? "/checkout" : "#"} className="w-full block">
-                <Button
-                  className="w-full bg-primary text-primary-foreground hover:bg-primary/90 py-6 text-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                  disabled={selectedCount === 0}
-                >
+                <Button ...>
                   {t.proceedCheckout}
                 </Button>
               </Link>
+              */}
+
+              {/* THAY BẰNG CÁI NÀY: */}
+              <Button
+                onClick={handleCheckout} // <-- GỌI HÀM MỚI Ở ĐÂY
+                className="w-full bg-primary text-primary-foreground hover:bg-primary/90 py-6 text-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={selectedCount === 0}
+              >
+                {t.proceedCheckout}
+              </Button>
+              {/* --- KẾT THÚC SỬA --- */}
+
+              {/* (Nút Clear Cart - Giữ nguyên) */}
               <button
                 onClick={clearCart}
                 className="w-full mt-3 px-4 py-2 text-destructive border border-destructive rounded-lg hover:bg-destructive/10 transition"

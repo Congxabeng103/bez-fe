@@ -286,13 +286,19 @@ export function BrandManagement() {
           </CardHeader>
           <CardContent className="pt-6 space-y-5">
             
-            <ImageUpload 
-              value={formData.imageUrl || ""} 
-              onChange={(value) => setFormData({ ...formData, imageUrl: value })} 
-              label="Hình ảnh thương hiệu (URL)"
-              // (Thêm validate nếu cần)
-              // error={formErrors.imageUrl} 
-            />
+            <div className="space-y-1.5">
+        {/* Label phải nằm ngoài container tải ảnh để xuống dòng */}
+        <Label htmlFor="brandImageUrl" className="block text-sm font-medium text-muted-foreground">Hình ảnh thương hiệu (URL)</Label> 
+        
+        {/* Khung tải ảnh thực tế */}
+        <ImageUpload 
+            value={formData.imageUrl || ""} 
+            onChange={(value) => setFormData({ ...formData, imageUrl: value })} 
+            label="" // Tắt label bên trong ImageUpload
+            className="w-24 h-24" // Đảm bảo kích thước cố định
+        />
+        {/* {formErrors.imageUrl && ...} */}
+    </div>
             {/* {formErrors.imageUrl && <p className="text-xs text-destructive -mt-3 ml-1">{formErrors.imageUrl}</p>} */}
             
             <div className="space-y-1.5">

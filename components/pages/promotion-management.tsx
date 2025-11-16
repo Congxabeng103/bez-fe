@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea"; // Thêm Textarea
+import { Textarea } from "@/components/ui/textarea"; 
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Plus, Edit2, Trash2, Search, Percent, RotateCcw, XCircle } from "lucide-react";
@@ -36,7 +36,7 @@ interface PromotionResponse {
   endDate: string;
   active: boolean;
   createdAt: string;
-  productCount: number; // Đã thêm
+  productCount: number;
 }
 
 interface PromotionFormData {
@@ -48,10 +48,8 @@ interface PromotionFormData {
   active: boolean;
 }
 
-// Kiểu cho state lỗi
 type PromotionFormErrors = Partial<Record<keyof PromotionFormData, string>>;
 
-// Kiểu cho state của Dialog
 interface DialogState {
   isOpen: boolean;
   action: 'delete' | 'reactivate' | 'permanentDelete' | null;
@@ -80,11 +78,11 @@ export function PromotionManagement() {
     name: "", description: "", discountValue: "", startDate: "", endDate: "", active: true,
   });
 
-  // State lỗi (Inline validation)
+  // State lỗi
   const [formErrors, setFormErrors] = useState<PromotionFormErrors>({});
   const [apiError, setApiError] = useState<string | null>(null);
 
-  // State quản lý dialog xác nhận
+  // State dialog
   const [dialogState, setDialogState] = useState<DialogState>({
     isOpen: false,
     action: null,
@@ -102,7 +100,6 @@ export function PromotionManagement() {
     if (promotionSearchTerm) query.append("search", promotionSearchTerm);
 
     try {
-      // Hàm fetch này giả định đã được cấu hình để gửi token
       const result = await manualFetchApi(`/v1/promotions?${query.toString()}`);
       if (result.status === 'SUCCESS' && result.data) {
         setPromotions(result.data.content); setTotalPromotionPages(result.data.totalPages);
@@ -123,10 +120,14 @@ export function PromotionManagement() {
     setPromotionFormData({ name: "", description: "", discountValue: "", startDate: "", endDate: "", active: true });
   }
 
-  // Hàm Validate (cho inline)
+  // (HÀM ĐÃ SỬA) Hàm Validate (cho inline)
   const validateForm = (): PromotionFormErrors => {
     const newErrors: PromotionFormErrors = {};
-    const { name, discountValue, startDate, endDate } = promotionFormData;
+    // 1. Lấy 'active'
+    const { name, discountValue, startDate, endDate, active } = promotionFormData;
+
+    // 2. Lấy ngày hôm nay (dạng "YYYY-MM-DD")
+    const todayStr = new Date().toISOString().split('T')[0];
 
     if (!name.trim()) {
       newErrors.name = "Tên khuyến mãi không được để trống.";
@@ -142,12 +143,13 @@ export function PromotionManagement() {
       newErrors.endDate = "Vui lòng chọn ngày kết thúc.";
     } else if (startDate && startDate > endDate) {
       newErrors.endDate = "Ngày kết thúc phải sau hoặc bằng ngày bắt đầu.";
+    } else if (active && endDate < todayStr) {
+      // 3. (SỬA) Nếu đang set 'active=true', thì ngày kết thúc không được ở quá khứ
+      newErrors.endDate = "Nếu muốn kích hoạt (active), ngày kết thúc không được ở trong quá khứ.";
     }
-    // Kiểm tra ngày bắt đầu trong quá khứ (chỉ khi tạo mới)
-    const today = new Date().toISOString().split('T')[0];
-    if (startDate && startDate < today && !editingPromotionId) {
-        newErrors.startDate = "Ngày bắt đầu không thể là ngày trong quá khứ.";
-    }
+    
+    // (Đã xóa logic kiểm tra startDate < today vì không cần thiết)
+    
     return newErrors;
   }
 
@@ -156,6 +158,7 @@ export function PromotionManagement() {
     if (!canEdit) { toast.error("Bạn không có quyền thực hiện hành động này."); return; }
     setApiError(null); setFormErrors({});
 
+    // (Gọi hàm validate đã sửa)
     const validationErrors = validateForm();
     if (Object.keys(validationErrors).length > 0) {
       setFormErrors(validationErrors);
@@ -185,7 +188,7 @@ export function PromotionManagement() {
       }
     } catch (err: any) {
       if (err.message && (err.message.toLowerCase().includes("đã tồn tại") || err.message.toLowerCase().includes("duplicate"))) {
-        setFormErrors({ name: err.message }); // Lỗi trùng tên
+        setFormErrors({ name: err.message }); 
         toast.error(err.message);
       } else {
         toast.error(`Lỗi: ${err.message}`);
@@ -221,13 +224,13 @@ export function PromotionManagement() {
     setDialogState({ isOpen: false, action: null, promotion: null });
   };
 
-  // Hàm thực thi hành động sau khi xác nhận
+  // (HÀM ĐÃ SỬA) Hàm thực thi hành động sau khi xác nhận
   const handleConfirmAction = async () => {
     const { action, promotion } = dialogState;
     if (!promotion || !canEdit) { toast.error("Hành động không hợp lệ hoặc bạn không có quyền."); closeDialog(); return; };
 
     try {
-      // 1. Logic cho "Ngừng hoạt động"
+      // 1. Logic cho "Ngừng hoạt động" (Giữ nguyên)
       if (action === 'delete') {
         const result = await manualFetchApi(`/v1/promotions/${promotion.id}`, { method: "DELETE" });
         if (result.status === 'SUCCESS') { toast.success("Đã ngừng hoạt động khuyến mãi."); fetchPromotions(); }
@@ -236,19 +239,30 @@ export function PromotionManagement() {
 
       // 2. Logic cho "Kích hoạt lại"
       else if (action === 'reactivate') {
+        
+        // (SỬA) 1. Kiểm tra xem khuyến mãi có hết hạn không
+        const todayStr = new Date().toISOString().split('T')[0];
+        if (promotion.endDate < todayStr) {
+          toast.error(`Kích hoạt thất bại: Khuyến mãi "${promotion.name}" đã hết hạn.`);
+          toast.info("Vui lòng bấm 'Sửa' (Edit) để gia hạn ngày kết thúc trước.");
+          closeDialog();
+          return; // Dừng lại
+        }
+        
+        // 2. Nếu ngày còn hợp lệ, tiến hành kích hoạt
         const url = `/v1/promotions/${promotion.id}`;
         const requestBody = {
           name: promotion.name, description: promotion.description, discountValue: promotion.discountValue,
-          startDate: promotion.startDate, endDate: promotion.endDate, active: true
+          startDate: promotion.startDate, endDate: promotion.endDate, 
+          active: true // <-- Kích hoạt
         };
         const result = await manualFetchApi(url, { method: "PUT", body: JSON.stringify(requestBody) });
         if (result.status === 'SUCCESS') { toast.success("Kích hoạt lại khuyến mãi thành công!"); fetchPromotions(); }
         else throw new Error(result.message || "Kích hoạt thất bại");
       }
 
-      // 3. Logic cho "Xóa vĩnh viễn"
+      // 3. Logic cho "Xóa vĩnh viễn" (Giữ nguyên)
       else if (action === 'permanentDelete') {
-        // Kiểm tra logic lần cuối (mặc dù backend cũng kiểm tra)
         if (promotion.productCount > 0) {
             toast.error("Không thể xóa vĩnh viễn KM đang có sản phẩm áp dụng.");
             closeDialog();
@@ -411,7 +425,7 @@ export function PromotionManagement() {
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead className="bg-muted/30">
-                        {/* Cập nhật Thead (Đã thêm cột "Sản phẩm") */}
+                        {/* Cập nhật Thead */}
                         <tr className="border-b">
                           <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Tên Khuyến Mãi</th>
                           <th className="text-right py-2.5 px-3 font-semibold text-foreground/80">Giảm (%)</th>
@@ -428,7 +442,7 @@ export function PromotionManagement() {
                         {promotions.map((promo) => (
                           <tr key={promo.id} className={`border-b last:border-b-0 hover:bg-muted/20 transition-colors ${!promo.active ? 'opacity-60 bg-gray-50 dark:bg-gray-900/30' : ''}`}>
                             
-                            {/* Cập nhật Tbody (Đã thêm cột "productCount") */}
+                            {/* Cập nhật Tbody */}
                             
                             {/* Dữ liệu */}
                             <td className="py-2 px-3 font-medium text-foreground">
@@ -453,7 +467,7 @@ export function PromotionManagement() {
                               </span>
                             </td>
                             
-                            {/* Nút hành động (Cập nhật logic nút Xóa) */}
+                            {/* Nút hành động */}
                             {canEdit && (
                               <td className="py-2 px-3">
                                 <div className="flex gap-1.5 justify-center">
@@ -468,7 +482,6 @@ export function PromotionManagement() {
                                         <RotateCcw size={14} />
                                       </Button>
                                       
-                                      {/* Logic MỚI: Chỉ hiện nút xóa khi productCount == 0 */}
                                       {promo.productCount === 0 && (
                                         <Button variant="outline" size="icon" className="w-7 h-7 text-red-700 border-red-700 hover:bg-red-100/50 dark:text-red-500 dark:border-red-500 dark:hover:bg-red-900/30" title="XÓA VĨNH VIỄN" onClick={() => setDialogState({ isOpen: true, action: 'permanentDelete', promotion: promo })}>
                                           <XCircle size={14} />
