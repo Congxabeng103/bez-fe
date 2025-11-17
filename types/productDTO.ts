@@ -27,6 +27,7 @@ export interface ProductDetailResponseDTO {
     product: ProductResponseDTO;
     relatedProducts: ProductResponseDTO[];
     attributes: AttributeData[];
+    galleryImages: ProductImage[];
 }
 
 // 3. DTO cho Thuộc tính động (Khớp AttributeResponseDTO - File 196)
@@ -40,4 +41,8 @@ export interface AttributeData {
 export interface AttributeValueData {
     id: number;
     value: string; // vd: "M"
+}
+export interface ProductImage {
+  id: number;
+  imageUrl: string;
 }

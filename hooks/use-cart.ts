@@ -134,14 +134,25 @@ export const useCart = create<CartState>((set, get) => ({
   addToCart: async (variantId, quantity) => {
     set({ isMutating: true });
     try {
+      // 1. Vẫn gọi API như bình thường
       await manualFetchApi("/v1/cart/add", {
         method: "POST",
         body: JSON.stringify({ variantId, quantity }),
       });
-      toast.success("Đã thêm vào giỏ hàng!");
+
+      // 2. 💥 XÓA BỎ TOAST THÀNH CÔNG Ở ĐÂY
+      // toast.success("Đã thêm vào giỏ hàng!"); // <-- XÓA DÒNG NÀY
+
+      // 3. Vẫn fetch lại giỏ hàng
       await get().fetchCart();
+
     } catch (error: any) {
-      toast.error(error.message || "Lỗi khi thêm sản phẩm");
+      // 4. 💥 NÉM LỖI RA NGOÀI
+      // Thay vì toast.error, hãy ném lỗi để page.tsx bắt
+      // error.message lúc này đã là "Bạn vui lòng đăng nhập lại"
+      // (nhờ có manualFetchApi)
+      throw error; 
+    
     } finally {
       set({ isMutating: false });
     }

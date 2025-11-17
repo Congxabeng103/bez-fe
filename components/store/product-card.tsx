@@ -6,7 +6,7 @@ import { Heart } from "lucide-react" // 1. Đã xóa Star
 import { useWishlist } from "@/hooks/use-wishlist"
 import { toast } from "sonner"
 import { ProductResponseDTO } from "@/types/productDTO";
-
+import { Badge } from "@/components/ui/badge"
 interface ProductCardProps {
   product: ProductResponseDTO
 }
@@ -39,24 +39,22 @@ export function ProductCard({ product }: ProductCardProps) {
           className="object-cover w-full h-full transition-transform group-hover:scale-105"
         />
         
-        {/* Nút Yêu thích */}
-        <button
-          onClick={handleWishlistToggle}
-          className="absolute top-3 right-3 p-2 bg-background/80 rounded-full backdrop-blur-sm transition hover:bg-background z-10"
-        >
-          <Heart className={`w-5 h-5 ${isInWishlist(String(product.id)) ? 'fill-destructive text-destructive' : 'text-muted-foreground'}`}/>
-        </button>
+        
 
         {/* Giá Sale (nếu có) */}
         {product.salePrice != null && product.salePrice < product.price && (
-            <div className="absolute top-3 left-3 bg-destructive text-destructive-foreground px-2 py-0.5 rounded-full text-xs font-semibold">
-                SALE
-            </div>
+            <Badge variant="destructive" className="absolute top-3 left-3">
+               SALE
+            </Badge>
         )}
       </div>
       
       <div className="p-4">
-        <p className="text-xs text-muted-foreground mb-1">{product.categoryName}</p>
+        <p className="text-xs text-muted-foreground mb-1 truncate">
+          {product.categoryName}
+          {product.categoryName && product.brandName && " • "}
+          {product.brandName}
+        </p>
         <h3 className="text-base font-semibold mb-2 truncate" title={product.name}>
           {product.name}
         </h3>

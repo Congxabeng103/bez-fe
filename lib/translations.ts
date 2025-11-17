@@ -12,7 +12,7 @@ export const translations = {
   logout: "Đăng xuất",
 
   // Home Page
-  welcomeTitle: "Chào mừng đến FashionHub",
+  welcomeTitle: "Chào mừng đến BezShop",
   welcomeDesc: "Khám phá những xu hướng thời trang mới nhất với bộ sưu tập quần áo và phụ kiện cao cấp của chúng tôi.",
   shopNow: "Mua ngay",
   featuredProducts: "Sản phẩm nổi bật",

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import Image from "next/image"; // <-- 1. IMPORT
 import { Button } from "@/components/ui/button";
 import { Loader2, Truck, ShieldCheck, Headset } from "lucide-react";
 import { toast } from "sonner";
@@ -10,6 +11,21 @@ import { translations as t } from "@/lib/translations";
 import { ProductCard } from "@/components/store/product-card";
 import { CampaignSlider } from "@/components/store/campaign-slider"; 
 import { VoucherList } from "@/components/store/voucher-list"; 
+// <-- 2. IMPORT TOOLTIP
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+// <-- 3. IMPORT CAROUSEL
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  CarouselNext,
+  CarouselPrevious,
+} from "@/components/ui/carousel";
 
 import { ProductResponseDTO } from "@/types/productDTO";
 import { CategoryResponseDTO } from "@/types/categoryDTO";
@@ -32,12 +48,12 @@ export default function Home() {
   const [coupons, setCoupons] = useState<CouponResponseDTO[]>([]);
   const [isLoadingCoupons, setIsLoadingCoupons] = useState(true);
 
-  // (Các hàm fetch khác giữ nguyên)
+  // (Tất cả các hàm fetch của bạn giữ nguyên)
   const fetchFeaturedProducts = useCallback(async () => {
     setIsLoadingProducts(true);
     const url = new URL(`${API_URL}/v1/products`);
     url.searchParams.append("page", "0");
-    url.searchParams.append("size", "8");
+    url.searchParams.append("size", "4");
     url.searchParams.append("sort", "createdAt,desc");
     url.searchParams.append("status", "ACTIVE");
     try {
@@ -94,13 +110,9 @@ export default function Home() {
   }, []);
 
   
-  // (SỬA HÀM NÀY)
   const fetchPublicCoupons = useCallback(async () => {
     setIsLoadingCoupons(true);
-    // (SỬA) Gọi API lấy TẤT CẢ voucher
     const url = new URL(`${API_URL}/v1/coupons/public/all`);
-    // (Xóa dòng 'url.searchParams.append("size", "3")')
-    
     try {
       const res = await fetch(url.toString());
       if (!res.ok) throw new Error("Lỗi tải voucher");
@@ -127,11 +139,10 @@ export default function Home() {
     fetchPublicCoupons
   ]);
 
-  // (Phần return giữ nguyên)
   return (
     <div className="min-h-screen">
       
-      {/* Hero Section */}
+      {/* Hero Section (Giữ nguyên) */}
       <section className="bg-gradient-to-r from-primary to-primary/80 text-primary-foreground py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center">
@@ -144,7 +155,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Trust Banner */}
+      {/* Trust Banner (Giữ nguyên) */}
       <section className="border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 grid grid-cols-1 sm:grid-cols-3 gap-6 text-center">
           <div className="flex items-center justify-center gap-3">
@@ -162,21 +173,21 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Campaign Slider Section */}
+      {/* Campaign Slider Section (Giữ nguyên) */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {!isLoadingPromotion && (
           <CampaignSlider promotions={promotions} />
         )}
       </section>
 
-      {/* Voucher List Section */}
+      {/* Voucher List Section (Giữ nguyên) */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
         {!isLoadingCoupons && (
           <VoucherList coupons={coupons} />
         )}
       </section>
 
-      {/* (Các section còn lại: Hàng Mới Về, Categories, Brands, Newsletter giữ nguyên) */}
+      {/* Hàng Mới Về (Giữ nguyên) */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <div className="mb-12">
           <h2 className="text-3xl font-bold mb-2">Hàng Mới Về</h2>
@@ -200,6 +211,8 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ======================================= */}
+      {/* 4. SỬA: KHỐI DANH MỤC (Dùng Carousel) */}
       <section className="bg-muted py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <h2 className="text-3xl font-bold mb-12 text-center">{t.shopByCategory}</h2>
@@ -208,22 +221,48 @@ export default function Home() {
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {categories.map((category) => (
-                <Link
-                  key={category.id}
-                  href={`/products?category=${encodeURIComponent(category.name)}`}
-                  className="group relative overflow-hidden rounded-lg h-48 bg-primary flex items-center justify-center hover:shadow-lg transition"
-                >
-                  <div className="absolute inset-0 bg-black/20 group-hover:bg-black/30 transition" />
-                  <h3 className="text-2xl font-bold text-primary-foreground relative z-10">{category.name}</h3>
-                </Link>
-              ))}
-            </div>
+            <Carousel
+              opts={{
+                align: "start", // Căn lề trái
+                loop: false, // Chỉ lặp lại nếu có nhiều hơn 6
+              }}
+              className="w-full" // Carousel chiếm toàn bộ chiều rộng
+            >
+              <CarouselContent className="-ml-4">
+                {categories.map((category) => (
+                  // Mỗi item là 1 cột trong slider
+                  <CarouselItem key={category.id} className="pl-4 basis-1/3 sm:basis-1/4 md:basis-1/6">
+                    <Link
+                      href={`/products?category=${encodeURIComponent(category.name)}`}
+                      className="group block text-center"
+                    >
+                      <div className="aspect-square overflow-hidden rounded-lg border bg-card group-hover:shadow-lg transition-shadow">
+                        <Image
+                          src={category.imageUrl || "/placeholder.svg"}
+                          alt={category.name}
+                          width={200}
+                          height={200}
+                          className="object-cover w-full h-full group-hover:scale-105 transition-transform"
+                        />
+                      </div>
+                      <h3 className="text-sm sm:text-base font-semibold mt-3 group-hover:text-primary transition-colors truncate">
+                        {category.name}
+                      </h3>
+                    </Link>
+                  </CarouselItem>
+                ))}
+              </CarouselContent>
+              <CarouselPrevious className="absolute left-[-20px] sm:left-[-50px] top-1/2 -translate-y-[120%]" />
+              <CarouselNext className="absolute right-[-20px] sm:right-[-50px] top-1/2 -translate-y-[120%]" />
+            </Carousel>
           )}
         </div>
       </section>
+      {/* ======================================= */}
 
+
+      {/* ======================================= */}
+      {/* 5. SỬA: KHỐI THƯƠNG HIỆU (Dùng Carousel) */}
       <section className="py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <h2 className="text-3xl font-bold mb-12 text-center">Thương Hiệu Nổi Bật</h2>
@@ -232,23 +271,53 @@ export default function Home() {
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-6">
-              {brands.map((brand) => (
-                <Link
-                  key={brand.id}
-                  href={`/products?brand=${encodeURIComponent(brand.name)}`}
-                  className="group flex items-center justify-center p-6 border border-border rounded-lg hover:shadow-md transition-shadow"
-                >
-                  <span className="text-lg font-semibold text-muted-foreground group-hover:text-foreground">
-                    {brand.name}
-                  </span>
-                </Link>
-              ))}
-            </div>
+            <TooltipProvider>
+              <Carousel
+                opts={{
+                  align: "start",
+                  loop: false, // Chỉ lặp lại nếu có nhiều hơn 6
+                }}
+                className="w-full"
+              >
+                <CarouselContent className="-ml-4">
+                  {brands.map((brand) => (
+                    <CarouselItem key={brand.id} className="pl-4 basis-1/3 sm:basis-1/4 md:basis-1/6">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Link
+                            href={`/products?brand=${encodeURIComponent(brand.name)}`}
+                            className="group"
+                          >
+                            <div className="flex items-center justify-center p-4 aspect-video border bg-card rounded-lg hover:shadow-md transition-shadow overflow-hidden">
+                              <Image
+                                src={brand.imageUrl || "/placeholder.svg"}
+                                alt={brand.name}
+                                width={150}
+                                height={84} // Tỉ lệ 16:9
+                                className="object-contain w-full h-auto transition-transform group-hover:scale-110"
+                              />
+                            </div>
+                          </Link>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>{brand.name}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </CarouselItem>
+                  ))}
+                </CarouselContent>
+                <CarouselPrevious className="absolute left-[-20px] sm:left-[-50px] top-1/2 -translate-y-1/2" />
+                <CarouselNext className="absolute right-[-20px] sm:right-[-50px] top-1/2 -translate-y-1/2" />
+              </Carousel>
+            </TooltipProvider>
           )}
         </div>
       </section>
+      {/* ======================================= */}
 
+      
+      {/* ======================================= */}
+      {/* 6. GIỮ NGUYÊN: KHỐI NEWSLETTER */}
       <section className="bg-primary text-primary-foreground py-16">
         <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2 className="text-3xl font-bold mb-4">{t.subscribeNewsletter}</h2>
@@ -259,6 +328,8 @@ export default function Home() {
           </div>
         </div>
       </section>
+      {/* ======================================= */}
+
     </div>
   )
 }

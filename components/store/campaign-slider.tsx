@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { PromotionResponseDTO } from "@/types/promotionDTO"
-import { PartyPopper, CalendarDays } from "lucide-react" // 1. Thêm icon Lịch
+import { PartyPopper, CalendarDays } from "lucide-react"
 import {
   Carousel,
   CarouselContent,
@@ -13,13 +13,13 @@ import {
   type CarouselApi,
 } from "@/components/ui/carousel"
 import Autoplay from "embla-carousel-autoplay"
-import React, { useState, useEffect } from "react" 
+import React, { useState, useEffect } from "react"
 
 interface CampaignSliderProps {
   promotions: PromotionResponseDTO[];
 }
 
-// (MỚI) Hàm định dạng ngày
+// Hàm định dạng ngày
 const formatDate = (dateString: string) => {
   try {
     return new Date(dateString).toLocaleDateString("vi-VN", {
@@ -77,7 +77,8 @@ export function CampaignSlider({ promotions }: CampaignSliderProps) {
         <CarouselContent>
           {promotions.map((promotion) => (
             <CarouselItem key={promotion.id}>
-              <div className="relative overflow-hidden rounded-lg bg-gradient-to-r from-blue-600 to-indigo-700 p-8 text-white shadow-lg min-h-[250px] flex flex-col justify-center">
+              {/* === MÀU CAM ĐÃ SỬA === */}
+              <div className="relative overflow-hidden rounded-lg bg-gradient-to-r from-orange-500 to-orange-700 p-8 text-white shadow-lg min-h-[250px] flex flex-col justify-center">
                 <div className="absolute -bottom-10 -right-10 opacity-20">
                   <PartyPopper className="h-48 w-48" />
                 </div>
@@ -87,11 +88,11 @@ export function CampaignSlider({ promotions }: CampaignSliderProps) {
                   </h3>
                   
                   <p className="mb-4 max-w-2xl text-2xl font-bold leading-tight md:text-3xl">
-                    Giảm {promotion.discountValue}% - {promotion.description}
+                    Giảm {promotion.discountValue}% • {promotion.description}
                   </p>
                   
-                  {/* 2. (MỚI) Thêm thời gian */}
-                  <div className="mb-6 flex items-center gap-2 text-blue-100 opacity-90">
+                  {/* Thêm thời gian */}
+                  <div className="mb-6 flex items-center gap-2 text-orange-100 opacity-90">
                     <CalendarDays className="h-4 w-4" />
                     <span className="text-sm">
                       Áp dụng đến: {formatDate(promotion.endDate)}
@@ -99,7 +100,7 @@ export function CampaignSlider({ promotions }: CampaignSliderProps) {
                   </div>
 
                   <Link href="/products"> 
-                    <Button variant="outline" className="bg-white text-blue-700 hover:bg-white/90">
+                    <Button variant="outline" className="bg-white text-orange-700 hover:bg-white/90">
                       Xem ngay
                     </Button>
                   </Link>
