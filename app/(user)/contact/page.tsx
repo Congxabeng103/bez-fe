@@ -20,27 +20,35 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 
-// 2. LẤY BIẾN MÔI TRƯỜNG TỪ TRANG HOME CỦA BẠN
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
-// 3. ĐỊNH NGHĨA SCHEMA VALIDATE (ĐÂY LÀ PHẦN KIỂM LỖI DƯỚI INPUT)
+// 2. ĐỊNH NGHĨA SCHEMA VALIDATE (ĐÃ NÂNG CẤP)
 const formSchema = z.object({
-  name: z.string().min(2, {
-    message: "Tên phải có ít nhất 2 ký tự.",
-  }),
-  email: z.string().email({
-    message: "Email không hợp lệ.",
-  }),
-  subject: z.string().optional(), // Chủ đề không bắt buộc
-  message: z.string().min(10, {
-    message: "Nội dung tin nhắn phải có ít nhất 10 ký tự.",
-  }),
+  name: z.string()
+    .trim() // Tự động cắt khoảng trắng thừa
+    .min(2, { message: "Tên phải có ít nhất 2 ký tự." })
+    // Regex: Chỉ chấp nhận chữ cái (Unicode tiếng Việt) và khoảng trắng
+    .regex(/^[\p{L}\s]+$/u, { message: "Tên không được chứa số hoặc ký tự đặc biệt." }),
+    
+  email: z.string()
+    .trim()
+    .min(1, { message: "Vui lòng nhập email." })
+    .email({ message: "Email không đúng định dạng." }),
+    
+  subject: z.string()
+    .trim()
+    .optional(), // Chủ đề không bắt buộc, nhưng nếu nhập thì sẽ trim
+    
+  message: z.string()
+    .trim()
+    .min(10, { message: "Nội dung tin nhắn phải có ít nhất 10 ký tự." })
+    .max(1000, { message: "Nội dung không được quá 1000 ký tự." }), // Thêm giới hạn tối đa để tránh spam
 });
 
 export default function ContactPage() {
   const [isLoading, setIsLoading] = useState(false);
 
-  // 4. KHỞI TẠO FORM VỚI REACT-HOOK-FORM
+  // 3. KHỞI TẠO FORM
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -51,16 +59,13 @@ export default function ContactPage() {
     },
   });
 
-  // 5. HÀM SUBMIT SẼ GỌI ĐẾN API SPRING BOOT CỦA BẠN
+  // 4. HÀM SUBMIT
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
     try {
-      // Gọi đến API Controller bạn vừa tạo
       const response = await fetch(`${API_URL}/v1/contact`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(values),
       });
 
@@ -68,9 +73,8 @@ export default function ContactPage() {
         throw new Error("Gửi tin nhắn thất bại. Vui lòng thử lại.");
       }
 
-      // Nếu thành công
       toast.success("Đã gửi tin nhắn thành công!");
-      form.reset(); // Xóa trắng form
+      form.reset(); 
     
     } catch (error: any) {
       toast.error(error.message || "Đã xảy ra lỗi không mong muốn.");
@@ -81,7 +85,7 @@ export default function ContactPage() {
 
   return (
     <div className="min-h-screen">
-      {/* Hero Section (Giữ nguyên) */}
+      {/* Hero Section */}
       <section className="bg-muted py-20 text-center">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <h1 className="text-4xl sm:text-5xl font-bold mb-4">Liên Hệ Với Chúng Tôi</h1>
@@ -91,11 +95,11 @@ export default function ContactPage() {
         </div>
       </section>
 
-      {/* Main Content Section (Giữ nguyên) */}
+      {/* Main Content Section */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-16">
           
-          {/* Thông tin liên hệ (Giữ nguyên) */}
+          {/* Thông tin liên hệ (Bên trái) */}
           <div className="space-y-8">
             <h2 className="text-3xl font-bold">Thông Tin Liên Hệ</h2>
             <div className="flex items-start gap-4">
@@ -103,7 +107,7 @@ export default function ContactPage() {
               <div>
                 <h3 className="text-lg font-semibold">Địa chỉ</h3>
                 <p className="text-muted-foreground">
-                  [Số 2A, Đường Bình Chiểu, Phường Bình Chiểu, Thành Phố Thủ Đức, Thành Phố Hồ Chí Minh]
+                  Số 2A, Đường Bình Chiểu, Phường Bình Chiểu, Thành Phố Thủ Đức, Thành Phố Hồ Chí Minh
                 </p>
               </div>
             </div>
@@ -111,20 +115,20 @@ export default function ContactPage() {
               <Phone className="h-7 w-7 text-primary mt-1 flex-shrink-0" />
               <div>
                 <h3 className="text-lg font-semibold">Điện thoại</h3>
-                <p className="text-muted-foreground">[0393274615]</p>
+                <p className="text-muted-foreground">0393274615</p>
               </div>
             </div>
             <div className="flex items-start gap-4">
               <Mail className="h-7 w-7 text-primary mt-1 flex-shrink-0" />
               <div>
                 <h3 className="text-lg font-semibold">Email</h3>
-                <p className="text-muted-foreground">[congdt04@gmail.com]</p>
+                <p className="text-muted-foreground">congdt04@gmail.com</p>
               </div>
             </div>
             
             <div className="aspect-video w-full">
                 <iframe 
-                    src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3919.447177817088!2d106.697148!3d10.777013!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x31752f4947c61199%3A0x628163013da1031!2zQ2jhu6MgQuG6v24gVGjDoG5o!5e0!3m2!1svi!2s!4v1688888888888!5m2!1svi!2s" 
+                    src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3918.4206639995355!2d106.73210431480143!3d10.855574792267847!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3175278789a74d9f%3A0x4374b53614554858!2zMiBCw6xuaCBDaGnhu4N1LCBQaMaw4budbmcgQsOsbmggQ2hp4buDdSwgVGjhu6cgxJDhu6ljLCBUaMOgbmggcGjhu5EgSOG7kyBDaMOtIE1pbmg!5e0!3m2!1svi!2s!4v1678945612345!5m2!1svi!2s" 
                     width="100%" 
                     height="100%" 
                     style={{ border: 0 }} 
@@ -136,14 +140,14 @@ export default function ContactPage() {
             </div>
           </div>
 
-          {/* 6. FORM ĐÃ ĐƯỢC CẬP NHẬT VỚI VALIDATE */}
+          {/* FORM LIÊN HỆ (Bên phải) */}
           <div className="space-y-8">
-            <h2 className="text-3xl font-bold">Gửi Tin Nhắn Cho Chúng Tôi</h2>
+            <h2 className="text-3xl font-bold">Gửi Tin Nhắn</h2>
             
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
                 
-                {/* TRƯỜNG HỌ TÊN */}
+                {/* TÊN */}
                 <FormField
                   control={form.control}
                   name="name"
@@ -153,12 +157,12 @@ export default function ContactPage() {
                       <FormControl>
                         <Input placeholder="Nguyễn Văn A" {...field} disabled={isLoading} />
                       </FormControl>
-                      <FormMessage /> {/* <-- Validate sẽ hiện ở đây */}
+                      <FormMessage />
                     </FormItem>
                   )}
                 />
                 
-                {/* TRƯỜNG EMAIL */}
+                {/* EMAIL */}
                 <FormField
                   control={form.control}
                   name="email"
@@ -168,12 +172,12 @@ export default function ContactPage() {
                       <FormControl>
                         <Input type="email" placeholder="email@example.com" {...field} disabled={isLoading} />
                       </FormControl>
-                      <FormMessage /> {/* <-- Validate sẽ hiện ở đây */}
+                      <FormMessage />
                     </FormItem>
                   )}
                 />
 
-                {/* TRƯỜNG CHỦ ĐỀ */}
+                {/* CHỦ ĐỀ */}
                 <FormField
                   control={form.control}
                   name="subject"
@@ -188,7 +192,7 @@ export default function ContactPage() {
                   )}
                 />
 
-                {/* TRƯỜNG NỘI DUNG */}
+                {/* NỘI DUNG */}
                 <FormField
                   control={form.control}
                   name="message"
@@ -203,7 +207,7 @@ export default function ContactPage() {
                           disabled={isLoading}
                         />
                       </FormControl>
-                      <FormMessage /> {/* <-- Validate sẽ hiện ở đây */}
+                      <FormMessage />
                     </FormItem>
                   )}
                 />

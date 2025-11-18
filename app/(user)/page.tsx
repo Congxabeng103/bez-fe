@@ -2,23 +2,27 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import Image from "next/image"; // <-- 1. IMPORT
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
-import { Loader2, Truck, ShieldCheck, Headset } from "lucide-react";
+// 1. THÊM ICON ADMIN
+import { Loader2, Truck, ShieldCheck, Headset, LayoutDashboard } from "lucide-react"; 
 import { toast } from "sonner";
 import { translations as t } from "@/lib/translations";
+
+// 2. IMPORT STORE CỦA BẠN (Sửa đường dẫn nếu file store của bạn nằm chỗ khác)
+import { useAuthStore } from "@/lib/authStore"; 
 
 import { ProductCard } from "@/components/store/product-card";
 import { CampaignSlider } from "@/components/store/campaign-slider"; 
 import { VoucherList } from "@/components/store/voucher-list"; 
-// <-- 2. IMPORT TOOLTIP
+
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-// <-- 3. IMPORT CAROUSEL
+
 import {
   Carousel,
   CarouselContent,
@@ -27,6 +31,7 @@ import {
   CarouselPrevious,
 } from "@/components/ui/carousel";
 
+// ... (Các import type DTO giữ nguyên)
 import { ProductResponseDTO } from "@/types/productDTO";
 import { CategoryResponseDTO } from "@/types/categoryDTO";
 import { BrandResponseDTO } from "@/types/brandDTO";
@@ -36,7 +41,13 @@ import { CouponResponseDTO } from "@/types/couponDTO";
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 export default function Home() {
-  // (State giữ nguyên)
+  // 3. LẤY USER TỪ STORE ZUSTAND
+  const { user } = useAuthStore(); 
+
+  // Kiểm tra quyền Admin: User tồn tại VÀ trong mảng roles có chứa "ADMIN"
+  // (Lưu ý: Nếu DB của bạn lưu là "ROLE_ADMIN" thì sửa chữ bên dưới cho khớp)
+  const isAdmin = user && user.roles && user.roles.includes("ADMIN");
+
   const [featuredProducts, setFeaturedProducts] = useState<ProductResponseDTO[]>([]);
   const [isLoadingProducts, setIsLoadingProducts] = useState(true);
   const [categories, setCategories] = useState<CategoryResponseDTO[]>([]);
@@ -48,7 +59,7 @@ export default function Home() {
   const [coupons, setCoupons] = useState<CouponResponseDTO[]>([]);
   const [isLoadingCoupons, setIsLoadingCoupons] = useState(true);
 
-  // (Tất cả các hàm fetch của bạn giữ nguyên)
+  // ... (Giữ nguyên toàn bộ các hàm fetchFeaturedProducts, fetchCategories, v.v...)
   const fetchFeaturedProducts = useCallback(async () => {
     setIsLoadingProducts(true);
     const url = new URL(`${API_URL}/v1/products`);
@@ -109,7 +120,6 @@ export default function Home() {
     finally { setIsLoadingBrands(false); }
   }, []);
 
-  
   const fetchPublicCoupons = useCallback(async () => {
     setIsLoadingCoupons(true);
     const url = new URL(`${API_URL}/v1/coupons/public/all`);
@@ -124,7 +134,6 @@ export default function Home() {
     finally { setIsLoadingCoupons(false); }
   }, []);
 
-  // (useEffect giữ nguyên)
   useEffect(() => {
     fetchFeaturedProducts();
     fetchCategories();
@@ -140,9 +149,9 @@ export default function Home() {
   ]);
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen relative"> 
       
-      {/* Hero Section (Giữ nguyên) */}
+      {/* Hero Section */}
       <section className="bg-gradient-to-r from-primary to-primary/80 text-primary-foreground py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center">
@@ -155,7 +164,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Trust Banner (Giữ nguyên) */}
+      {/* Trust Banner */}
       <section className="border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 grid grid-cols-1 sm:grid-cols-3 gap-6 text-center">
           <div className="flex items-center justify-center gap-3">
@@ -173,21 +182,21 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Campaign Slider Section (Giữ nguyên) */}
+      {/* Campaign Slider Section */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {!isLoadingPromotion && (
           <CampaignSlider promotions={promotions} />
         )}
       </section>
 
-      {/* Voucher List Section (Giữ nguyên) */}
+      {/* Voucher List Section */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
         {!isLoadingCoupons && (
           <VoucherList coupons={coupons} />
         )}
       </section>
 
-      {/* Hàng Mới Về (Giữ nguyên) */}
+      {/* Hàng Mới Về */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <div className="mb-12">
           <h2 className="text-3xl font-bold mb-2">Hàng Mới Về</h2>
@@ -211,8 +220,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ======================================= */}
-      {/* 4. SỬA: KHỐI DANH MỤC (Dùng Carousel) */}
+      {/* KHỐI DANH MỤC */}
       <section className="bg-muted py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <h2 className="text-3xl font-bold mb-12 text-center">{t.shopByCategory}</h2>
@@ -222,15 +230,11 @@ export default function Home() {
             </div>
           ) : (
             <Carousel
-              opts={{
-                align: "start", // Căn lề trái
-                loop: false, // Chỉ lặp lại nếu có nhiều hơn 6
-              }}
-              className="w-full" // Carousel chiếm toàn bộ chiều rộng
+              opts={{ align: "start", loop: false }}
+              className="w-full"
             >
               <CarouselContent className="-ml-4">
                 {categories.map((category) => (
-                  // Mỗi item là 1 cột trong slider
                   <CarouselItem key={category.id} className="pl-4 basis-1/3 sm:basis-1/4 md:basis-1/6">
                     <Link
                       href={`/products?category=${encodeURIComponent(category.name)}`}
@@ -258,11 +262,8 @@ export default function Home() {
           )}
         </div>
       </section>
-      {/* ======================================= */}
 
-
-      {/* ======================================= */}
-      {/* 5. SỬA: KHỐI THƯƠNG HIỆU (Dùng Carousel) */}
+      {/* KHỐI THƯƠNG HIỆU */}
       <section className="py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <h2 className="text-3xl font-bold mb-12 text-center">Thương Hiệu Nổi Bật</h2>
@@ -273,10 +274,7 @@ export default function Home() {
           ) : (
             <TooltipProvider>
               <Carousel
-                opts={{
-                  align: "start",
-                  loop: false, // Chỉ lặp lại nếu có nhiều hơn 6
-                }}
+                opts={{ align: "start", loop: false }}
                 className="w-full"
               >
                 <CarouselContent className="-ml-4">
@@ -293,7 +291,7 @@ export default function Home() {
                                 src={brand.imageUrl || "/placeholder.svg"}
                                 alt={brand.name}
                                 width={150}
-                                height={84} // Tỉ lệ 16:9
+                                height={84}
                                 className="object-contain w-full h-auto transition-transform group-hover:scale-110"
                               />
                             </div>
@@ -313,7 +311,32 @@ export default function Home() {
           )}
         </div>
       </section>
-     
+
+      {/* ======================================= */}
+      {/* 4. HIỂN THỊ NÚT ADMIN (FLOATING)        */}
+      {/* ======================================= */}
+      {isAdmin && (
+        <div className="fixed bottom-6 right-6 z-50 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                {/* Thay đổi đường dẫn href dưới đây đến trang Admin thực tế của bạn (vd: /admin/dashboard) */}
+                <Link href="/admin"> 
+                  <Button 
+                    size="icon" 
+                    className="h-14 w-14 rounded-full shadow-xl bg-red-600 hover:bg-red-700 text-white border-2 border-white"
+                  >
+                    <LayoutDashboard className="h-6 w-6" />
+                  </Button>
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent side="left">
+                <p>Quản trị viên</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+      )}
 
     </div>
   )

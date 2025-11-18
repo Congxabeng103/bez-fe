@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Loader2, CheckCircle2, AlertCircle, Check, Mail } from "lucide-react"
+import { Loader2, AlertCircle, Check, Mail } from "lucide-react" 
 import { toast } from "sonner"
 
 export default function RegisterPage() {
@@ -26,14 +26,15 @@ export default function RegisterPage() {
   const [isSuccess, setIsSuccess] = useState(false)
   const [showPasswordHints, setShowPasswordHints] = useState(false)
 
-  // Check password strength
+  // Check password strength (Chuẩn phủ định)
   const checkPasswordStrength = (pwd: string) => ({
       length: pwd.length >= 8,
       hasUpper: /[A-Z]/.test(pwd),
       hasLower: /[a-z]/.test(pwd),
       hasNumber: /[0-9]/.test(pwd),
-      hasSpecial: /[!@#$%^&*(),.?":{}|<>]/.test(pwd),
+      hasSpecial: /[^a-zA-Z0-9]/.test(pwd), // Ký tự đặc biệt là bất cứ gì KHÔNG phải chữ và số
   })
+  
   const pwdStrength = checkPasswordStrength(formData.password)
   const isStrongPassword = Object.values(pwdStrength).every(Boolean)
 
@@ -47,8 +48,22 @@ export default function RegisterPage() {
     const cleanData = { ...formData, firstName: formData.firstName.trim(), lastName: formData.lastName.trim(), email: formData.email.trim() }
     const newErrors: any = {}
 
-    if (!cleanData.firstName) newErrors.firstName = "Vui lòng nhập tên"
-    if (!cleanData.lastName) newErrors.lastName = "Vui lòng nhập họ"
+    // --- 1. VALIDATE TÊN CHUẨN ---
+    // Regex: Chỉ chấp nhận chữ cái (Unicode tiếng Việt) và khoảng trắng
+    const nameRegex = /^[\p{L}\s]+$/u;
+
+    if (!cleanData.firstName) {
+        newErrors.firstName = "Vui lòng nhập tên";
+    } else if (!nameRegex.test(cleanData.firstName)) {
+        newErrors.firstName = "Tên không được chứa số hoặc ký tự đặc biệt";
+    }
+
+    if (!cleanData.lastName) {
+        newErrors.lastName = "Vui lòng nhập họ";
+    } else if (!nameRegex.test(cleanData.lastName)) {
+        newErrors.lastName = "Họ không được chứa số hoặc ký tự đặc biệt";
+    }
+    // -----------------------------
     
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!cleanData.email) newErrors.email = "Vui lòng nhập email"
@@ -96,7 +111,7 @@ export default function RegisterPage() {
           </CardDescription>
         </CardHeader>
         
-        <CardContent className="space-y-5"> {/* Tăng khoảng cách giữa các khối lớn */}
+        <CardContent className="space-y-5">
           {isSuccess ? (
             /* --- GIAO DIỆN THÀNH CÔNG --- */
             <div className="flex flex-col items-center text-center space-y-5 py-4 animate-in zoom-in-95">
@@ -121,7 +136,7 @@ export default function RegisterPage() {
               
               <div className="grid grid-cols-2 gap-4">
                 {/* HỌ & TÊN */}
-                <div className="space-y-1.5"> {/* THÊM space-y-1.5 ĐỂ KÉO LABEL GẦN INPUT */}
+                <div className="space-y-1.5">
                   <Label className={errors.firstName && "text-red-500"}>Tên *</Label>
                   <Input 
                     placeholder="Tên"
@@ -142,7 +157,7 @@ export default function RegisterPage() {
               </div>
 
               {/* EMAIL */}
-              <div className="space-y-1.5"> {/* KÉO GẦN */}
+              <div className="space-y-1.5">
                 <Label className={errors.email && "text-red-500"}>Email *</Label>
                 <Input 
                     type="email" placeholder="example@gmail.com"
@@ -157,7 +172,7 @@ export default function RegisterPage() {
               </div>
 
               {/* PASSWORD */}
-              <div className="space-y-1.5"> {/* KÉO GẦN */}
+              <div className="space-y-1.5">
                 <Label className={errors.password && "text-red-500"}>Mật khẩu *</Label>
                 <Input 
                     type="password" placeholder="••••••••"
@@ -176,13 +191,14 @@ export default function RegisterPage() {
                         <Req met={pwdStrength.hasUpper} label="Chữ hoa (A-Z)" />
                         <Req met={pwdStrength.hasLower} label="Chữ thường (a-z)" />
                         <Req met={pwdStrength.hasNumber} label="Số (0-9)" />
-                        <Req met={pwdStrength.hasSpecial} label="Ký tự đặc biệt" />
+                        {/* HIỂN THỊ RÕ VÍ DỤ KÝ TỰ ĐẶC BIỆT */}
+                        <Req met={pwdStrength.hasSpecial} label="Ký tự đặc biệt (!@#_-%...)" />
                     </div>
                 )}
               </div>
 
               {/* CONFIRM PASSWORD */}
-              <div className="space-y-1.5"> {/* KÉO GẦN */}
+              <div className="space-y-1.5">
                 <Label className={errors.confirmPassword && "text-red-500"}>Nhập lại mật khẩu *</Label>
                 <Input 
                     type="password" placeholder="••••••••"

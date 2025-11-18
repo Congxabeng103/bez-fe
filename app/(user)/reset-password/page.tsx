@@ -4,101 +4,121 @@
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Loader2, CheckCircle, KeyRound, ArrowLeft } from "lucide-react"; // Icons
+import { Loader2, CheckCircle, KeyRound, ArrowLeft, Check } from "lucide-react"; 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import Link from "next/link"; // Import Link
+import Link from "next/link";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ;
 
-// Component con chứa logic, phải bọc trong <Suspense>
+// --- Helper Component: Hiển thị yêu cầu mật khẩu ---
+function Req({met, label}: {met: boolean, label: string}) {
+    return (
+        <div className={`flex items-center transition-colors duration-300 ${met?"text-green-600 font-medium":"text-slate-500"}`}>
+            {met ? <Check size={12} className="mr-1.5 text-green-600"/> : <div className="w-2 h-2 rounded-full border border-slate-300 mr-2"/>}
+            {label}
+        </div>
+    )
+}
+
+// Component con chứa logic
 function ResetPasswordContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const token = searchParams.get("token"); // Lấy token từ URL
+  const token = searchParams.get("token"); 
 
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   
   const [isLoading, setIsLoading] = useState(false);
-  const [message, setMessage] = useState("");
-  const [isError, setIsError] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false); // Báo thành công
+  const [isSuccess, setIsSuccess] = useState(false); 
+  const [isTokenError, setIsTokenError] = useState(false); // Lỗi token ban đầu
+
+  // State lỗi inline
+  const [errors, setErrors] = useState({ password: "", confirmPassword: "" });
+  const [showPasswordHints, setShowPasswordHints] = useState(false);
+
+  // --- Logic Check Password Strength (Giống trang Đăng ký) ---
+  const checkPasswordStrength = (pwd: string) => ({
+      length: pwd.length >= 8,
+      hasUpper: /[A-Z]/.test(pwd),
+      hasLower: /[a-z]/.test(pwd),
+      hasNumber: /[0-9]/.test(pwd),
+      hasSpecial: /[^a-zA-Z0-9]/.test(pwd), // Regex phủ định chuẩn
+  })
+  const pwdStrength = checkPasswordStrength(password);
+  const isStrongPassword = Object.values(pwdStrength).every(Boolean);
 
   // Kiểm tra token ngay khi tải trang
   useEffect(() => {
     if (!token) {
-      setMessage("Token không hợp lệ hoặc bị thiếu.");
-      setIsError(true);
-      setIsLoading(false);
+      setIsTokenError(true);
+      toast.error("Token không hợp lệ hoặc bị thiếu.");
     }
   }, [token]);
 
-  // Hàm xử lý khi nhấn nút "Đặt lại mật khẩu"
+  // Hàm xử lý đổi mật khẩu
   const handleResetPassword = async () => {
-    if (!token) return toast.error("Token không hợp lệ.");
+    if (!token) return;
+
+    // 1. Validate
+    const newErrors = { password: "", confirmPassword: "" };
+    let hasError = false;
+
     if (!password) {
-        setMessage("Vui lòng nhập mật khẩu mới.");
-        setIsError(true);
-        return;
+        newErrors.password = "Vui lòng nhập mật khẩu mới"; hasError = true;
+    } else if (!isStrongPassword) {
+        newErrors.password = "Mật khẩu chưa đủ mạnh"; hasError = true;
     }
-    if (password.length < 6) {
-        setMessage("Mật khẩu phải có ít nhất 6 ký tự.");
-        setIsError(true);
-        return;
-    }
+
     if (password !== confirmPassword) {
-        setMessage("Mật khẩu xác nhận không khớp.");
-        setIsError(true);
-        return;
+        newErrors.confirmPassword = "Mật khẩu xác nhận không khớp"; hasError = true;
     }
 
-    setIsLoading(true);
-    setMessage("");
-    setIsError(false);
+    setErrors(newErrors);
+    if (hasError) return;
 
+    // 2. Call API
+    setIsLoading(true);
     try {
-      // Gọi API backend (Spring Boot)
       const response = await fetch(`${API_URL}/v1/auth/reset-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // Backend (AuthenticationService) cần token và newPassword
         body: JSON.stringify({ token: token, newPassword: password }), 
       });
 
-      // Backend trả về message dạng text (String)
       const resultMessage = await response.text();
 
       if (response.ok) {
-        // Backend trả về: "Đặt lại mật khẩu thành công!"
-        setMessage(resultMessage);
-        setIsError(false);
-        setIsSuccess(true); // Đánh dấu thành công
+        setIsSuccess(true);
         toast.success("Đặt lại mật khẩu thành công!");
-        
-        // Tự động chuyển về trang login (là trang '/') sau 3 giây
-        setTimeout(() => {
-          router.push('/'); 
-        }, 3000);
+        setTimeout(() => { router.push('/'); }, 3000);
       } else {
-        // Lỗi 404 (Token không hợp lệ) hoặc lỗi khác
-        setMessage(resultMessage || "Token không hợp lệ hoặc đã hết hạn.");
-        setIsError(true);
         toast.error(resultMessage || "Token không hợp lệ.");
+        // Nếu lỗi do token hết hạn, khóa form lại
+        if (resultMessage.toLowerCase().includes("token")) {
+            setIsTokenError(true);
+        }
       }
     } catch (err) {
-      console.error(err);
-      setMessage("Lỗi kết nối đến server. Vui lòng thử lại.");
-      setIsError(true);
       toast.error("Lỗi kết nối server.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Giao diện
+  // --- Update State và xóa lỗi khi nhập ---
+  const handlePwdChange = (val: string) => {
+      setPassword(val);
+      if (errors.password) setErrors(prev => ({...prev, password: ""}));
+  }
+  const handleConfirmChange = (val: string) => {
+      setConfirmPassword(val);
+      if (errors.confirmPassword) setErrors(prev => ({...prev, confirmPassword: ""}));
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center p-4">
       <Card className="w-full max-w-md shadow-lg">
@@ -109,73 +129,79 @@ function ResetPasswordContent() {
         </CardHeader>
         <CardContent className="space-y-4">
           
-          {/* Nếu thành công, chỉ hiển thị thông báo */}
-          {isSuccess ? (
+          {/* TRƯỜNG HỢP 1: Token Lỗi */}
+          {isTokenError ? (
+            <div className="space-y-4 text-center">
+                <div className="bg-red-100 text-red-800 p-4 rounded text-sm">
+                    Token không hợp lệ hoặc đã hết hạn. Vui lòng yêu cầu gửi lại email.
+                </div>
+                <Link href="/forgot-password">
+                    <Button variant="outline" className="w-full">Gửi lại yêu cầu</Button>
+                </Link>
+            </div>
+          ) : isSuccess ? (
+            /* TRƯỜNG HỢP 2: Thành công */
             <div className="space-y-4">
               <div className="bg-green-100 text-green-800 p-4 rounded text-sm text-center">
                 <CheckCircle className="h-10 w-10 text-green-500 mx-auto mb-2" />
-                <p className="font-semibold">{message}</p>
-                <p className="text-xs mt-1">Đang tự động chuyển hướng về trang đăng nhập...</p>
+                <p className="font-semibold">Đổi mật khẩu thành công!</p>
+                <p className="text-xs mt-1">Đang chuyển hướng về trang đăng nhập...</p>
               </div>
               <Button onClick={() => router.push('/')} className="w-full">
                 Về trang Đăng nhập ngay
               </Button>
             </div>
           ) : (
-            // Ngược lại, hiển thị form nhập mật khẩu
+            /* TRƯỜNG HỢP 3: Form nhập mật khẩu */
             <>
-              {/* Chỉ hiển thị form nếu token hợp lệ (isError = false ban đầu) */}
-              {(!isError || message) && ( // Hiện form nếu chưa có lỗi token ban đầu, hoặc đã có lỗi validate
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="password">Mật khẩu mới</Label>
+                {/* Mật khẩu mới */}
+                <div className="space-y-1.5">
+                    <Label htmlFor="password" className={errors.password ? "text-red-500" : ""}>Mật khẩu mới</Label>
                     <Input
-                      id="password"
-                      placeholder="Nhập mật khẩu (tối thiểu 6 ký tự)"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      type="password"
-                      disabled={isLoading}
+                        id="password" type="password" placeholder="••••••••"
+                        value={password}
+                        onChange={(e) => handlePwdChange(e.target.value)}
+                        onFocus={() => setShowPasswordHints(true)}
+                        disabled={isLoading}
+                        className={errors.password ? "border-red-500 focus-visible:ring-red-500" : ""}
                     />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="confirmPassword">Xác nhận mật khẩu mới</Label>
-                    <Input
-                      id="confirmPassword"
-                      placeholder="Nhập lại mật khẩu mới"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      type="password"
-                      disabled={isLoading}
-                    />
-                  </div>
-                </>
-              )}
+                    {errors.password && <p className="text-xs text-red-500">{errors.password}</p>}
 
-              {/* Hiển thị thông báo (lỗi) */}
-              {message && (
-                <div
-                  className={`p-3 rounded text-sm ${
-                    isError ? "bg-red-100 text-red-800" : "bg-blue-100 text-blue-800"
-                  }`}
-                >
-                  {message}
+                    {/* Password Hints */}
+                    {(showPasswordHints || (password.length > 0 && !isStrongPassword)) && (
+                        <div className="bg-slate-50 p-3 rounded-md mt-2 text-[11px] space-y-1.5 border border-slate-200">
+                            <p className="font-semibold text-slate-700 mb-1">Yêu cầu:</p>
+                            <Req met={pwdStrength.length} label="Tối thiểu 8 ký tự" />
+                            <Req met={pwdStrength.hasUpper} label="Chữ hoa (A-Z)" />
+                            <Req met={pwdStrength.hasLower} label="Chữ thường (a-z)" />
+                            <Req met={pwdStrength.hasNumber} label="Số (0-9)" />
+                            <Req met={pwdStrength.hasSpecial} label="Ký tự đặc biệt (!@#_-%...)" />
+                        </div>
+                    )}
                 </div>
-              )}
 
-              {/* Nút bấm */}
-              {!isError && ( // Chỉ hiển thị nút Submit nếu token ban đầu OK
-                <Button onClick={handleResetPassword} className="w-full" disabled={isLoading}>
-                  {isLoading ? <Loader2 size={16} className="animate-spin mr-2" /> : null}
-                  {isLoading ? "Đang xử lý..." : "Đặt lại mật khẩu"}
+                {/* Xác nhận mật khẩu */}
+                <div className="space-y-1.5">
+                    <Label htmlFor="confirmPassword" className={errors.confirmPassword ? "text-red-500" : ""}>Xác nhận mật khẩu mới</Label>
+                    <Input
+                        id="confirmPassword" type="password" placeholder="••••••••"
+                        value={confirmPassword}
+                        onChange={(e) => handleConfirmChange(e.target.value)}
+                        disabled={isLoading}
+                        className={errors.confirmPassword ? "border-red-500 focus-visible:ring-red-500" : ""}
+                    />
+                    {errors.confirmPassword && <p className="text-xs text-red-500">{errors.confirmPassword}</p>}
+                </div>
+
+                <Button onClick={handleResetPassword} className="w-full mt-4" disabled={isLoading}>
+                    {isLoading ? <Loader2 size={16} className="animate-spin mr-2" /> : null}
+                    {isLoading ? "Đang xử lý..." : "Đặt lại mật khẩu"}
                 </Button>
-              )}
               
-              {/* Nút quay lại Login */}
-              <Link href="/" className="text-primary hover:underline text-sm w-full text-center block pt-2">
-                  <ArrowLeft size={14} className="inline mr-1" />
-                  Quay lại Đăng nhập
-              </Link>
+                <Link href="/" className="text-primary hover:underline text-sm w-full text-center block pt-2">
+                    <ArrowLeft size={14} className="inline mr-1" />
+                    Quay lại Đăng nhập
+                </Link>
             </>
           )}
         </CardContent>
@@ -184,8 +210,6 @@ function ResetPasswordContent() {
   );
 }
 
-// --- Component chính để export (BẮT BUỘC) ---
-// Phải bọc trong <Suspense> vì ResetPasswordContent dùng useSearchParams
 export default function ResetPasswordPage() {
   return (
     <Suspense fallback={
