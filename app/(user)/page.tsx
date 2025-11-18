@@ -313,22 +313,7 @@ export default function Home() {
           )}
         </div>
       </section>
-      {/* ======================================= */}
-
-      
-      {/* ======================================= */}
-      {/* 6. GIỮ NGUYÊN: KHỐI NEWSLETTER */}
-      <section className="bg-primary text-primary-foreground py-16">
-        <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <h2 className="text-3xl font-bold mb-4">{t.subscribeNewsletter}</h2>
-          <p className="mb-6 opacity-90">{t.getExclusiveOffers}</p>
-          <div className="flex gap-2">
-            <input type="email" placeholder={t.enterEmail} className="flex-1 px-4 py-2 rounded-lg text-foreground" />
-            <Button className="bg-primary-foreground text-primary hover:bg-primary-foreground/90">{t.subscribe}</Button>
-          </div>
-        </div>
-      </section>
-      {/* ======================================= */}
+     
 
     </div>
   )

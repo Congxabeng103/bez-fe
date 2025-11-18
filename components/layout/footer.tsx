@@ -44,12 +44,12 @@ export function Footer() {
                 </Link>
               </li>
               <li>
-                <Link href="/faq" className="hover:underline">
+                <Link href="#" className="hover:underline">
                   FAQ
                 </Link>
               </li>
               <li>
-                <Link href="/returns" className="hover:underline">
+                <Link href="#" className="hover:underline">
                   Returns
                 </Link>
               </li>
@@ -77,7 +77,7 @@ export function Footer() {
         </div>
 
         <div className="border-t border-primary-foreground/20 pt-8 text-center text-sm opacity-90">
-          <p>&copy; 2025 FashionHub. All rights reserved.</p>
+          <p>&copy; 2025 BezShop. All rights reserved.</p>
         </div>
       </div>
     </footer>

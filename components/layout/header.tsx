@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-// 1. Thêm 'ShoppingBag'
 import { ShoppingCart, Search, Menu, X, User, LogOut, ShoppingBag } from "lucide-react"; 
 import { useState, useEffect } from "react";
 import { useCart } from "@/hooks/use-cart";
@@ -16,15 +15,22 @@ export function Header() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   
+  const [avatarError, setAvatarError] = useState(false); 
+
   const { cart, isLoaded: isCartLoaded } = useCart(); 
+  // Đảm bảo authStore của bạn trả về object user có chứa firstName
   const { isAuthenticated: isLoggedIn, user, logout } = useAuthStore(); 
   const totalItems = cart.length; 
   
   const [isLoaded, setIsLoaded] = useState(false);
+  
   useEffect(() => {
     setIsLoaded(true);
   }, []);
-  // ---
+
+  useEffect(() => {
+    setAvatarError(false);
+  }, [user]);
 
   const searchResults = searchQuery.trim()
     ? products.filter(
@@ -75,7 +81,7 @@ export function Header() {
 
               {isSearchOpen && (
                 <div className="absolute right-0 top-full mt-2 w-80 bg-card border border-border rounded-lg shadow-lg p-4 z-50">
-                  {/* (Code Search Popup) */}
+                   {/* Code Search Popup */}
                 </div>
               )}
             </div>
@@ -93,22 +99,30 @@ export function Header() {
             {isLoaded && ( 
               <div className="relative">
                 {isLoggedIn && user ? (
-                  // Nếu ĐÃ ĐĂNG NHẬP (Hiển thị Avatar)
                   <button
                     onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                    className="p-2 hover:bg-muted rounded-lg transition flex items-center gap-2"
+                    className="p-1 hover:bg-muted rounded-full transition flex items-center gap-2"
                   >
-                    {/* --- SỬA: ĐỒNG BỘ AVATAR --- */}
-                    <img
-                      src={user.avatar || "/placeholder.svg"}
-                      alt={user.name || "Avatar"}
-                      className="w-6 h-6 rounded-full object-cover" 
-                      onError={(e) => { (e.target as HTMLImageElement).src = "/placeholder.svg"; }}
-                    />
-                    {/* --- KẾT THÚC SỬA --- */}
+                    {/* --- START: AVATAR LOGIC --- */}
+                    {user.avatar && !avatarError ? (
+                      <img
+                        src={user.avatar}
+                        alt={user.name || "User"}
+                        className="w-8 h-8 rounded-full object-cover border border-border"
+                        onError={() => setAvatarError(true)}
+                      />
+                    ) : (
+                      <div className="w-8 h-8 rounded-full bg-muted text-foreground flex items-center justify-center font-bold border border-border text-sm select-none">
+                        {/* LOGIC MỚI: Dùng firstName nếu có */}
+                        {user.firstName 
+                          ? user.firstName.charAt(0).toUpperCase()
+                          : (user.name ? user.name.trim().split(" ").pop()?.charAt(0).toUpperCase() : "U")
+                        }
+                      </div>
+                    )}
+                    {/* --- END: AVATAR LOGIC --- */}
                   </button>
                 ) : (
-                  // Nếu CHƯA ĐĂNG NHẬP
                   <>
                     <div className="hidden sm:flex items-center gap-2">
                       <Link href="/login">
@@ -124,50 +138,50 @@ export function Header() {
                   </>
                 )}
 
-                {/* Dropdown Menu (khi đã đăng nhập) */}
                 {isUserMenuOpen && isLoggedIn && user && (
-                  <div className="absolute right-0 top-full mt-2 w-48 bg-card border border-border rounded-lg shadow-lg z-50">
-                    <div className="p-4 border-b border-border">
-                      <p className="font-semibold">{user.name}</p>
-                      <p className="text-sm text-muted-foreground">{user.email}</p>
+                  <div className="absolute right-0 top-full mt-2 w-56 bg-card border border-border rounded-lg shadow-lg z-50 overflow-hidden">
+                    <div className="p-4 border-b border-border bg-muted/30">
+                      {/* Hiển thị tên đầy đủ ở menu cho lịch sự */}
+                      <p className="font-semibold truncate">{user.name || user.firstName}</p> 
+                      <p className="text-xs text-muted-foreground truncate">{user.email}</p>
                     </div>
-                    <Link
-                      href="/profile" 
-                      className="block w-full text-left px-4 py-2 hover:bg-muted transition flex items-center gap-2"
-                      onClick={() => setIsUserMenuOpen(false)}
-                    >
-                      <User className="w-4 h-4" /> 
-                      {t.myProfile}
-                    </Link>
-                    
-                    {/* --- SỬA: THÊM LINK "ĐƠN HÀNG CỦA TÔI" --- */}
-                    <Link
-                      href="/orders" // Link đến trang đơn hàng
-                      className="block w-full text-left px-4 py-2 hover:bg-muted transition flex items-center gap-2"
-                      onClick={() => setIsUserMenuOpen(false)}
-                    >
-                      <ShoppingBag className="w-4 h-4" /> 
-                      Đơn hàng của tôi
-                    </Link>
-                    {/* --- KẾT THÚC SỬA --- */}
+                    <div className="p-1">
+                        <Link
+                        href="/profile" 
+                        className="w-full text-left px-3 py-2 hover:bg-muted rounded-md transition flex items-center gap-2 text-sm"
+                        onClick={() => setIsUserMenuOpen(false)}
+                        >
+                        <User className="w-4 h-4" /> 
+                        {t.myProfile}
+                        </Link>
+                        
+                        <Link
+                        href="/orders"
+                        className="w-full text-left px-3 py-2 hover:bg-muted rounded-md transition flex items-center gap-2 text-sm"
+                        onClick={() => setIsUserMenuOpen(false)}
+                        >
+                        <ShoppingBag className="w-4 h-4" /> 
+                        Đơn hàng của tôi
+                        </Link>
 
-                    <button
-                      onClick={() => {
-                        logout()
-                        setIsUserMenuOpen(false)
-                      }}
-                      className="w-full text-left px-4 py-2 hover:bg-muted transition flex items-center gap-2 text-destructive"
-                    >
-                      <LogOut className="w-4 h-4" />
-                      {t.logout}
-                    </button>
+                        <div className="h-px bg-border my-1" />
+
+                        <button
+                        onClick={() => {
+                            logout()
+                            setIsUserMenuOpen(false)
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-600 rounded-md transition flex items-center gap-2 text-sm"
+                        >
+                        <LogOut className="w-4 h-4" />
+                        {t.logout}
+                        </button>
+                    </div>
                   </div>
                 )}
               </div>
             )}
-            {/* --- KẾT THÚC Logic Auth UI --- */}
 
-            {/* Mobile Menu Button */}
             <button
               className="md:hidden p-2 hover:bg-muted rounded-lg transition"
               onClick={() => setIsMenuOpen(!isMenuOpen)}
@@ -178,9 +192,8 @@ export function Header() {
         </div>
       </div>
 
-      {/* Mobile Navigation */}
       {isMenuOpen && (
-        <nav className="md:hidden pb-4 flex flex-col gap-2">
+        <nav className="md:hidden pb-4 px-4 flex flex-col gap-2">
           <Link href="/" className="px-4 py-2 hover:bg-muted rounded transition">
             {t.home}
           </Link>
@@ -195,9 +208,6 @@ export function Header() {
           </Link>
         </nav>
       )}
-      
-      {/* --- SỬA: XÓA THẺ </div> THỪA Ở ĐÂY --- */}
-      
     </header>
   );
 }

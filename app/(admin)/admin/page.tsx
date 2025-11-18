@@ -89,14 +89,29 @@ export default function AdminDashboardPage() {
           <div></div> {/* Div rỗng để căn phải */}
 
           <div className="relative group">
-            <button className="flex items-center gap-2 hover:bg-muted p-2 rounded-lg transition-colors">
-              <img
-                src={user?.avatar || "/placeholder.svg"}
-                alt={user?.name || "User"}
-                className="w-8 h-8 rounded-full object-cover" // <--- ĐÃ THÊM object-cover
-              />  
-              <span className="text-sm font-medium">{user?.name}</span>
-            </button>
+  {/* Nút bấm chứa avatar và tên */}
+  <button className="flex items-center gap-2 hover:bg-muted p-2 rounded-lg transition-colors">
+    {/* --- AVATAR LOGIC MỚI: CHỮ CÁI (TEXT INITIALS) --- */}
+    {(user?.avatar) ? (
+      // 1. Nếu có ảnh avatar
+      <img
+        src={user.avatar}
+        alt={user.name || "User"}
+        className="w-8 h-8 rounded-full object-cover"
+      />
+    ) : (
+      // 2. Nếu KHÔNG CÓ ảnh: Hiện chữ cái với nền đen, chữ trắng
+      <div className="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center text-sm font-semibold select-none">
+        {user?.firstName 
+          ? user.firstName.charAt(0).toUpperCase()
+          : (user?.name ? user.name.trim().split(" ").pop()?.charAt(0).toUpperCase() : "U")
+        }
+      </div>
+    )}
+    {/* --- KẾT THÚC AVATAR LOGIC --- */}
+    
+    <span className="text-sm font-medium">{user?.name}</span>
+  </button>
 
             {/* Dropdown menu */}
             <div className="absolute right-0 mt-0 w-48 bg-background border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">

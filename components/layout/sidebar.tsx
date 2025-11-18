@@ -7,7 +7,7 @@ import {
     Percent, LogOut, Settings, LayoutList, Building, Images
 } from "lucide-react";
 import { useAuthStore } from "@/lib/authStore";
-import { UserCheck as UserPlaceholderIcon } from "lucide-react"; // Đảm bảo UserCheck được import cho fallback icon
+import { UserCheck as UserPlaceholderIcon } from "lucide-react";
 
 interface SidebarProps {
     currentPage: string;
@@ -18,7 +18,6 @@ export function Sidebar({ currentPage, onPageChange }: SidebarProps) {
     const [isOpen, setIsOpen] = useState(false);
     const { user, logout } = useAuthStore();
 
-    // --- SỬA PHÂN QUYỀN: Cập nhật danh sách menu ---
     const menuItems = [
         { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ['ADMIN', 'MANAGER'] },
         { id: "orders", label: "Đơn hàng", icon: ShoppingCart, roles: ['ADMIN', 'MANAGER', 'STAFF'] },
@@ -95,23 +94,26 @@ export function Sidebar({ currentPage, onPageChange }: SidebarProps) {
                 <div className="p-4 border-t border-border">
                     <div className="flex items-center gap-3 px-3 py-2 rounded-lg">
                         
-                        {/* --- LOGIC AVATAR VÀ FALLBACK --- */}
+                        {/* --- SỬA THEO YÊU CẦU: NỀN ĐEN, CHỮ TRẮNG, ƯU TIÊN FIRSTNAME --- */}
                         {user?.avatar ? (
                             <img
                                 src={user.avatar}
                                 alt={user.name || "User"}
-                                // FIX: Dùng object-cover để lấp đầy khung hình (như bạn yêu cầu)
                                 className="w-10 h-10 rounded-full object-cover shrink-0" 
                             />
                         ) : (
-                            // Fallback: Hiển thị chữ cái đầu nếu không có avatar
+                            // Fallback: Nền đen, chữ trắng
                             <div 
-                                className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-xl font-bold shrink-0"
+                                className="w-10 h-10 rounded-full bg-black text-white flex items-center justify-center text-lg font-semibold shrink-0 select-none"
                             >
-                                {user?.name?.charAt(0).toUpperCase() || '?'}
+                                {user?.firstName 
+                                    ? user.firstName.charAt(0).toUpperCase()
+                                    // Fallback nếu không có firstName, dùng logic cũ của bạn từ file page.tsx
+                                    : (user?.name ? user.name.trim().split(" ").pop()?.charAt(0).toUpperCase() : "?")
+                                }
                             </div>
                         )}
-                        {/* --- KẾT THÚC LOGIC AVATAR --- */}
+                        {/* --- KẾT THÚC SỬA --- */}
 
                         <div className="flex-1 text-left min-w-0">
                             <p className="text-sm font-medium text-foreground">{user?.name}</p>
