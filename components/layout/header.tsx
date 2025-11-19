@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { ShoppingCart, Search, Menu, X, User, LogOut, ShoppingBag } from "lucide-react"; 
+// 1. THÊM IMPORT LayoutDashboard
+import { ShoppingCart, Search, Menu, X, User, LogOut, ShoppingBag, LayoutDashboard } from "lucide-react"; 
 import { useState, useEffect } from "react";
 import { useCart } from "@/hooks/use-cart";
 import { useAuthStore } from "@/lib/authStore";
@@ -18,7 +19,6 @@ export function Header() {
   const [avatarError, setAvatarError] = useState(false); 
 
   const { cart, isLoaded: isCartLoaded } = useCart(); 
-  // Đảm bảo authStore của bạn trả về object user có chứa firstName
   const { isAuthenticated: isLoggedIn, user, logout } = useAuthStore(); 
   const totalItems = cart.length; 
   
@@ -31,6 +31,12 @@ export function Header() {
   useEffect(() => {
     setAvatarError(false);
   }, [user]);
+
+  // 2. LOGIC KIỂM TRA QUYỀN TRUY CẬP ADMIN
+  // Kiểm tra xem user có role nào chứa chữ ADMIN, MANAGER hoặc STAFF không
+  const canAccessAdmin = user?.roles?.some(role => 
+    role.includes('ADMIN') || role.includes('MANAGER') || role.includes('STAFF')
+  );
 
   const searchResults = searchQuery.trim()
     ? products.filter(
@@ -141,11 +147,23 @@ export function Header() {
                 {isUserMenuOpen && isLoggedIn && user && (
                   <div className="absolute right-0 top-full mt-2 w-56 bg-card border border-border rounded-lg shadow-lg z-50 overflow-hidden">
                     <div className="p-4 border-b border-border bg-muted/30">
-                      {/* Hiển thị tên đầy đủ ở menu cho lịch sự */}
                       <p className="font-semibold truncate">{user.name || user.firstName}</p> 
                       <p className="text-xs text-muted-foreground truncate">{user.email}</p>
                     </div>
                     <div className="p-1">
+                        
+                        {/* 3. HIỂN THỊ NÚT ADMIN NẾU CÓ QUYỀN */}
+                        {canAccessAdmin && (
+                          <Link
+                            href="/admin"
+                            className="w-full text-left px-3 py-2 hover:bg-blue-50 text-blue-600 rounded-md transition flex items-center gap-2 text-sm font-medium"
+                            onClick={() => setIsUserMenuOpen(false)}
+                          >
+                            <LayoutDashboard className="w-4 h-4" />
+                            Trang quản trị
+                          </Link>
+                        )}
+
                         <Link
                         href="/profile" 
                         className="w-full text-left px-3 py-2 hover:bg-muted rounded-md transition flex items-center gap-2 text-sm"

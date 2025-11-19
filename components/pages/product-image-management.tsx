@@ -18,7 +18,7 @@ interface ProductBrief {
   galleryImageCount: number; 
 }
 
-const ITEMS_PER_PAGE = 10;
+const ITEMS_PER_PAGE = 5;
 
 export function ProductImageManagement() {
   const { user } = useAuthStore();

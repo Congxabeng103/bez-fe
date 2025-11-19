@@ -1,16 +1,16 @@
 "use client";
 
 import { useAuthStore } from "@/lib/authStore";
-import { OrderCard } from "@/components/store/order-card";
-import { Button, buttonVariants } from "@/components/ui/button"; // Sửa: Thêm buttonVariants
+import { OrderCard } from "@/components/store/order-card"; 
+import { Button, buttonVariants } from "@/components/ui/button";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useCallback } from "react";
 import { Package, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { PageResponseDTO, UserOrderDTO, OrderStatus } from "@/types/userOrderDTO"; 
-
-// --- 1. THÊM CÁC IMPORT CHO POPUP ---
+import { PageResponseDTO, UserOrderDTO, OrderStatus } from "@/types/userOrderDTO";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Pagination } from "@/components/store/pagination"; 
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,10 +21,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Textarea } from "@/components/ui/textarea"; // Dùng cho lý do
-import { cn } from "@/lib/utils"; // Dùng cho cn
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 
-// --- Helper API Call (Giữ nguyên) ---
+// --- Helper API Call ---
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 const manualFetchApi = async (url: string, options: RequestInit = {}) => {
   const { token } = useAuthStore.getState();
@@ -41,7 +41,17 @@ const manualFetchApi = async (url: string, options: RequestInit = {}) => {
   }
   return responseData;
 };
-// --- Hết Helper ---
+
+const statusLabels: Record<string, string> = {
+  ALL: "Tất cả",
+  PENDING: "Chờ xác nhận",
+  CONFIRMED: "Đã xác nhận",
+  SHIPPING: "Đang giao",
+  DELIVERED: "Đã giao",
+  COMPLETED: "Hoàn tất",
+  CANCELLED: "Đã hủy",
+  DISPUTE: "Khiếu nại",
+};
 
 export default function OrdersPage() {
   const { isAuthenticated } = useAuthStore();
@@ -49,37 +59,52 @@ export default function OrdersPage() {
 
   const [orders, setOrders] = useState<UserOrderDTO[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // --- State Phân trang & Lọc ---
   const [pagination, setPagination] = useState({ page: 0, totalPages: 1, size: 5 });
+  // THÊM: State lưu tổng số đơn hàng
+  const [totalOrders, setTotalOrders] = useState(0);
 
-  // State loading cho các nút trên card
+  const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [processingOrderId, setProcessingOrderId] = useState<number | null>(null);
 
-  // --- 2. THÊM STATE CHO POPUP KHIẾU NẠI ---
+  // State Popup Khiếu nại
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false);
   const [reportReason, setReportReason] = useState("");
   const [reportingOrderId, setReportingOrderId] = useState<number | null>(null);
 
-  // fetchMyOrders (Giữ nguyên)
+  // --- CẬP NHẬT FETCH API ---
   const fetchMyOrders = useCallback(async () => {
     setIsLoading(true);
     try {
+      const params = new URLSearchParams();
+      params.append("page", String(pagination.page));
+      params.append("size", String(pagination.size));
+      
+      if (statusFilter !== "ALL") {
+        params.append("status", statusFilter);
+      }
+
       const response = await manualFetchApi(
-        `/v1/orders/my-orders?page=${pagination.page}&size=${pagination.size}`
+        `/v1/orders/my-orders?${params.toString()}`
       );
       const data: PageResponseDTO<UserOrderDTO> = response.data;
-      setOrders(data.content);
+      
+      // CẬP NHẬT: Thêm fallback và setTotalOrders
+      setOrders(data.content || []);
       setPagination(prev => ({
         ...prev,
-        totalPages: data.totalPages
+        totalPages: data.totalPages ?? 0
       }));
+      setTotalOrders(data.totalElements ?? 0); // <-- Lấy tổng số bản ghi
+
     } catch (err: any) {
-      toast.error(err.message || "Lỗi khi tải đơn hàng.");
+      if (orders.length > 0) toast.error(err.message || "Lỗi khi tải đơn hàng.");
     } finally {
       setIsLoading(false);
     }
-  }, [pagination.page, pagination.size]);
+  }, [pagination.page, pagination.size, statusFilter]);
 
-  // useEffect (Giữ nguyên)
   useEffect(() => {
     if (isAuthenticated) {
       fetchMyOrders();
@@ -88,16 +113,30 @@ export default function OrdersPage() {
     }
   }, [isAuthenticated, fetchMyOrders]);
 
-  // HÀM CẬP NHẬT TRẠNG THÁI (Giữ nguyên)
-  const updateOrderStatusInList = (orderId: number, newStatus: OrderStatus) => {
-    setOrders(prevOrders =>
-      prevOrders.map(o =>
-        o.id === orderId ? { ...o, orderStatus: newStatus } : o
-      )
-    );
+  // --- Handlers ---
+  const handleTabChange = (val: string) => {
+    setStatusFilter(val);
+    setPagination(prev => ({ ...prev, page: 0 }));
   };
 
-  // HÀM THANH TOÁN LẠI (Giữ nguyên)
+  const handlePageChange = (newPage: number) => {
+    setPagination(prev => ({ ...prev, page: newPage - 1 }));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const updateOrderStatusInList = (orderId: number, newStatus: OrderStatus) => {
+    if (statusFilter !== "ALL" && statusFilter !== newStatus) {
+        setOrders(prev => prev.filter(o => o.id !== orderId));
+    } else {
+        setOrders(prevOrders =>
+          prevOrders.map(o =>
+            o.id === orderId ? { ...o, orderStatus: newStatus } : o
+          )
+        );
+    }
+  };
+
+  // --- Logic Actions ---
   const handleRetryPayment = async (orderId: number) => {
     setProcessingOrderId(orderId); 
     try {
@@ -117,9 +156,7 @@ export default function OrdersPage() {
     }
   };
 
-  // HÀM XÁC NHẬN ĐÃ NHẬN HÀNG (Giữ nguyên)
   const handleConfirmDelivery = async (orderId: number) => {
-    // (Tùy chọn: Bạn cũng có thể thêm 1 popup xác nhận cho hành động này)
     setProcessingOrderId(orderId);
     try {
       await manualFetchApi(`/v1/orders/my-orders/${orderId}/complete`, { method: 'PUT' });
@@ -132,60 +169,46 @@ export default function OrdersPage() {
     }
   };
 
-  // --- 3. REFACTOR HÀM KHIẾU NẠI ---
-
-  // Hàm MỚI: Mở popup khiếu nại
   const openReportDialog = (orderId: number) => {
     setReportingOrderId(orderId);
-    setReportReason(""); // Xóa lý do cũ
+    setReportReason("");
     setIsReportDialogOpen(true);
   };
 
-  // Hàm MỚI: Đóng popup
   const closeReportDialog = () => {
-    if (processingOrderId) return; // Không cho đóng khi đang gửi
+    if (processingOrderId) return;
     setIsReportDialogOpen(false);
     setReportingOrderId(null);
   };
 
-  // Hàm MỚI: Gửi khiếu nại (logic từ `handleReportIssue` cũ)
   const handleSubmitReport = async () => {
-    // 1. Kiểm tra
     if (!reportingOrderId) return;
     if (reportReason.trim() === "") {
       toast.error("Vui lòng nhập nội dung khiếu nại.");
-      return; // Không đóng popup
+      return;
     }
 
-    setProcessingOrderId(reportingOrderId); // Bật loading
+    setProcessingOrderId(reportingOrderId);
     try {
-      // 2. Gửi API với 'body'
       await manualFetchApi(`/v1/orders/my-orders/${reportingOrderId}/report-issue`, {
         method: 'PUT',
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: reportReason }) // Gửi DisputeRequestDTO
+        body: JSON.stringify({ reason: reportReason })
       });
       
       toast.success("Đã gửi khiếu nại. Chúng tôi sẽ liên hệ với bạn.");
       updateOrderStatusInList(reportingOrderId, 'DISPUTE');
-      closeReportDialog(); // Đóng popup SAU KHI thành công
+      closeReportDialog();
       
     } catch (err: any) {
       toast.error(err.message || "Lỗi khi gửi khiếu nại.");
-      // Không đóng popup nếu lỗi
     } finally {
-      // Chỉ tắt loading nếu API đã xong (dù thành công hay thất bại)
-      // Nếu thành công, `processingOrderId` đã được set null ở trên
       if (reportingOrderId) {
          setProcessingOrderId(null);
       }
     }
   };
 
-  // --- HẾT REFACTOR ---
-
-
-  // Loading (Giữ nguyên)
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -194,55 +217,71 @@ export default function OrdersPage() {
     );
   }
 
-  // Render (Giữ nguyên)
   return (
-    <div className="min-h-screen bg-background">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold mb-2 flex items-center gap-2">
-            <Package className="w-8 h-8" />
-            Đơn hàng của tôi
+    <div className="min-h-screen bg-gray-50/30">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <div className="mb-6">
+          <h1 className="text-3xl font-bold mb-2 flex items-center gap-2">
+            <Package className="w-8 h-8 text-primary" />
+            {/* CẬP NHẬT: Hiển thị số lượng đơn hàng */}
+            Đơn hàng của tôi ({totalOrders})
           </h1>
           <p className="text-muted-foreground">Theo dõi và quản lý các đơn hàng của bạn</p>
         </div>
 
+        {/* --- GIAO DIỆN TABS --- */}
+        <Tabs value={statusFilter} onValueChange={handleTabChange} className="mb-6 sticky top-0 z-10 bg-gray-50/30 backdrop-blur py-2">
+            <div className="w-full overflow-x-auto pb-2 scrollbar-hide">
+              <TabsList className="w-max h-auto p-1 bg-white border rounded-xl shadow-sm">
+                {['ALL', 'PENDING', 'CONFIRMED', 'SHIPPING', 'DELIVERED', 'COMPLETED', 'CANCELLED', 'DISPUTE'].map(st => (
+                  <TabsTrigger key={st} value={st} className="px-4 py-2 text-sm font-medium data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
+                    {statusLabels[st]}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </div>
+        </Tabs>
+
         {orders.length === 0 ? (
-          <div className="text-center py-16">
+          <div className="text-center py-16 bg-white rounded-xl border border-dashed shadow-sm">
             <Package className="w-16 h-16 text-muted-foreground mx-auto mb-4 opacity-50" />
-            <h2 className="text-2xl font-bold mb-2">Chưa có đơn hàng nào</h2>
-            <p className="text-muted-foreground mb-6">Hãy bắt đầu mua sắm để tạo đơn hàng đầu tiên!</p>
+            <h2 className="text-2xl font-bold mb-2">Không tìm thấy đơn hàng</h2>
+            <p className="text-muted-foreground mb-6">
+              {statusFilter === 'ALL' ? "Bạn chưa mua đơn hàng nào." : "Không có đơn hàng ở trạng thái này."}
+            </p>
             <Link href="/products">
               <Button>Tiếp tục mua sắm</Button>
             </Link>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-            {/* --- 4. SỬA CHỖ NÀY: TRUYỀN HÀM MỞ POPUP --- */}
+          <div className="flex flex-col space-y-4">
             {orders.map((order) => (
               <OrderCard
                 key={order.id}
                 order={order}
-                
-                // Props cho nút "Thanh toán lại"
                 onRetryPayment={handleRetryPayment}
-                
-                // Props cho nút "Đã nhận hàng"
                 onConfirmDelivery={handleConfirmDelivery}
-                
-                // Props cho nút "Khiếu nại" (Dùng hàm MỚI)
                 onReportIssue={openReportDialog} 
-                
-                // Báo cho Card biết nó có đang loading hay không
                 isProcessing={processingOrderId === order.id}
               />
             ))}
-
           </div>
         )}
+        
+        {/* --- GIAO DIỆN PHÂN TRANG --- */}
+        {pagination.totalPages > 1 && (
+            <div className="flex justify-center pt-8">
+                <Pagination 
+                    currentPage={pagination.page + 1} 
+                    totalPages={pagination.totalPages} 
+                    onPageChange={handlePageChange} 
+                />
+            </div>
+        )}
+
       </div>
 
-      {/* --- 5. THÊM POPUP XÁC NHẬN KHIẾU NẠI --- */}
+      {/* --- POPUP KHIẾU NẠI --- */}
       <AlertDialog open={isReportDialogOpen} onOpenChange={setIsReportDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -252,8 +291,6 @@ export default function OrdersPage() {
               sản phẩm lỗi, hư hỏng...). Chúng tôi sẽ xem xét và liên hệ lại với bạn.
             </AlertDialogDescription>
           </AlertDialogHeader>
-
-          {/* Ô nhập lý do */}
           <div className="py-2">
             <Textarea
               id="reportReason"
@@ -265,7 +302,6 @@ export default function OrdersPage() {
               autoFocus
             />
           </div>
-
           <AlertDialogFooter>
             <AlertDialogCancel onClick={closeReportDialog} disabled={processingOrderId !== null}>
               Hủy
@@ -273,7 +309,7 @@ export default function OrdersPage() {
             <AlertDialogAction
               onClick={handleSubmitReport}
               disabled={processingOrderId !== null || reportReason.trim() === ""}
-              className={cn(buttonVariants({ variant: "destructive" }))} // Nút màu đỏ
+              className={cn(buttonVariants({ variant: "destructive" }))}
             >
               {processingOrderId === reportingOrderId ? (
                 <Loader2 size={16} className="mr-2 animate-spin" />

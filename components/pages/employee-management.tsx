@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Mail, Phone, Edit2, Trash2, Plus, RotateCcw, XCircle } from "lucide-react"; // <-- THÊM XCircle
+import { Search, Mail, Phone, Edit2, Trash2, Plus, RotateCcw, XCircle } from "lucide-react";
 import { useAuthStore } from "@/lib/authStore";
 import { Pagination } from "@/components/store/pagination";
 import { toast } from "sonner";
@@ -13,7 +13,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { manualFetchApi } from "@/lib/api";
-// THÊM: Import Alert Dialog
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,12 +26,12 @@ import {
 
 const ITEMS_PER_PAGE = 5;
 
-// --- Interfaces (Đã thêm activityCount) ---
+// --- Interfaces ---
 interface EmployeeResponse {
   id: number;
   name: string; // Full Name
   email: string;
-  phone: string | null; // <-- SỬA: Cho phép null
+  phone: string | null;
   joinDate: string; 
   active: boolean;
   role: string;
@@ -43,16 +42,14 @@ interface EmployeeFormData {
   firstName: string; 
   lastName: string;
   email: string;
-  phone: string | null; // <-- SỬA: Cho phép null
+  phone: string | null;
   active: boolean;
   password?: string;
   role: string;
 }
 
-// Kiểu cho state lỗi
 type EmployeeFormErrors = Partial<Record<keyof EmployeeFormData, string>>;
 
-// Kiểu cho state của Dialog
 interface DialogState {
   isOpen: boolean;
   action: 'delete' | 'reactivate' | 'permanentDelete' | null;
@@ -69,6 +66,9 @@ export function EmployeeManagement() {
   const [employees, setEmployees] = useState<EmployeeResponse[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
+  // THÊM: State lưu tổng số bản ghi
+  const [totalEmployees, setTotalEmployees] = useState(0);
+  
   const [searchTerm, setSearchTerm] = useState("");
   const [isFetching, setIsFetching] = useState(false);
   const [filterStatus, setFilterStatus] = useState("ACTIVE");
@@ -81,11 +81,11 @@ export function EmployeeManagement() {
     active: true, password: "", role: "STAFF"
   });
   
-  // === SỬA: State lỗi (Inline validation) ===
+  // State lỗi
   const [formErrors, setFormErrors] = useState<EmployeeFormErrors>({});
   const [apiError, setApiError] = useState<string | null>(null);
   
-  // === THÊM: State quản lý dialog xác nhận ===
+  // State dialog
   const [dialogState, setDialogState] = useState<DialogState>({
     isOpen: false,
     action: null,
@@ -107,8 +107,10 @@ export function EmployeeManagement() {
     try {
       const result = await manualFetchApi(`/v1/users/employees?${query.toString()}`);
       if (result.status === 'SUCCESS' && result.data) {
-        setEmployees(result.data.content);
-        setTotalPages(result.data.totalPages);
+        // CẬP NHẬT: Thêm fallback và setTotalEmployees
+        setEmployees(result.data.content || []);
+        setTotalPages(result.data.totalPages ?? 0);
+        setTotalEmployees(result.data.totalElements ?? 0); // <-- Lấy tổng số bản ghi
       } else throw new Error(result.message || "Lỗi tải nhân viên");
     } catch (err: any) { 
       toast.error(`Lỗi: ${err.message}`); 
@@ -128,7 +130,6 @@ export function EmployeeManagement() {
     setFormData({ firstName: "", lastName: "", email: "", phone: null, active: true, password: "", role: "STAFF" });
   }
   
-  // === THÊM: Hàm Validate Mới ===
   const validateForm = (): EmployeeFormErrors => {
     const newErrors: EmployeeFormErrors = {};
     const { firstName, lastName, email, role, password } = formData;
@@ -149,7 +150,6 @@ export function EmployeeManagement() {
     return newErrors;
   }
 
-  // === SỬA: handleSubmit (Tích hợp Inline Validation) ===
   const handleSubmit = async () => {
     if (!isAdmin) { toast.error("Bạn không có quyền."); return; }
     
@@ -171,7 +171,7 @@ export function EmployeeManagement() {
     if (isEditing) {
         url = `/v1/users/${editingId}`;
         method = "PUT";
-        requestBody = { // UserRequestDTO
+        requestBody = { 
             firstName: formData.firstName.trim(),
             lastName: formData.lastName.trim(),
             email: formData.email.trim(),
@@ -181,7 +181,7 @@ export function EmployeeManagement() {
     } else {
         url = `/v1/users/employees`;
         method = "POST";
-        requestBody = { // EmployeeRequestDTO
+        requestBody = { 
             firstName: formData.firstName.trim(),
             lastName: formData.lastName.trim(),
             email: formData.email.trim(),
@@ -205,18 +205,16 @@ export function EmployeeManagement() {
         throw new Error(result.message || (isEditing ? "Cập nhật thất bại" : "Tạo thất bại"));
       }
     } catch (err: any) {
-      // === SỬA: Gán lỗi vào đúng ô Email ===
       if (err.message && (err.message.toLowerCase().includes("đã tồn tại") || err.message.toLowerCase().includes("duplicate"))) {
-          setFormErrors({ email: err.message }); // Lỗi trùng email
+          setFormErrors({ email: err.message }); 
           toast.error(err.message);
       } else {
           toast.error(`Lỗi: ${err.message}`);
-          setApiError(err.message); // Lỗi API chung
+          setApiError(err.message);
       }
     }
   };
 
-  // handleEdit (Đã cập nhật reset lỗi)
   const handleEdit = (employee: EmployeeResponse) => {
     if (!isAdmin) return;
     const fullName = employee.name || "";
@@ -243,7 +241,6 @@ export function EmployeeManagement() {
     setFormErrors({});
   };
   
-  // === THAY THẾ: Logic Dialog (Thay cho handleDelete, handleReactivate) ===
   const closeDialog = () => {
     setDialogState({ isOpen: false, action: null, employee: null });
   };
@@ -253,7 +250,6 @@ export function EmployeeManagement() {
     if (!employee || !isAdmin) { toast.error("Hành động không hợp lệ."); closeDialog(); return; };
 
     try {
-      // 1. Logic cho "Ngừng hoạt động"
       if (action === 'delete') {
         const result = await manualFetchApi(`/v1/users/${employee.id}`, { method: "DELETE" });
         if (result.status === 'SUCCESS') {
@@ -262,7 +258,6 @@ export function EmployeeManagement() {
         } else throw new Error(result.message || "Ngừng hoạt động thất bại");
       } 
       
-      // 2. Logic cho "Kích hoạt lại"
       else if (action === 'reactivate') {
         const url = `/v1/users/${employee.id}`;
         const fullName = employee.name || "";
@@ -286,9 +281,7 @@ export function EmployeeManagement() {
         } else throw new Error(result.message || "Kích hoạt thất bại");
       } 
       
-      // 3. Logic cho "Xóa vĩnh viễn"
       else if (action === 'permanentDelete') {
-        // Backend sẽ kiểm tra (activityCount > 0)
         const result = await manualFetchApi(`/v1/users/permanent-delete/${employee.id}`, { method: "DELETE" });
         if (result.status === 'SUCCESS') {
           toast.success("Đã xóa vĩnh viễn nhân viên.");
@@ -332,7 +325,7 @@ export function EmployeeManagement() {
       {/* Lỗi API chung */}
       {apiError && ( <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md border border-destructive/30 animate-shake">{apiError}</div> )}
 
-      {/* Form (Đã cập nhật Inline Validation) */}
+      {/* Form */}
       {showForm && (
         <Card className="border-blue-500/50 shadow-md animate-fade-in">
           <CardHeader>
@@ -410,10 +403,11 @@ export function EmployeeManagement() {
         </Card>
       )}
 
-      {/* --- Bảng Danh sách Nhân viên (ĐÃ CẬP NHẬT) --- */}
+      {/* --- Bảng Danh sách Nhân viên --- */}
       <Card className="shadow-sm">
         <CardHeader>
-          <CardTitle className="text-xl font-semibold">Danh sách nhân viên</CardTitle>
+          {/* CẬP NHẬT: Hiển thị số lượng bản ghi */}
+          <CardTitle className="text-xl font-semibold">Danh sách nhân viên ({totalEmployees})</CardTitle>
           <Tabs value={filterStatus} onValueChange={handleTabChange} className="mt-4">
             <TabsList className="grid w-full grid-cols-3 md:w-[400px]">
               <TabsTrigger value="ACTIVE">Đang hoạt động</TabsTrigger>
@@ -430,68 +424,65 @@ export function EmployeeManagement() {
           {isFetching ? <div className="text-center py-6 text-muted-foreground animate-pulse">Đang tải...</div> :
             employees.length === 0 ? <div className="text-center py-6 text-muted-foreground">{searchTerm ? "Không tìm thấy." : `Không có nhân viên nào (${filterStatus.toLowerCase()}).`}</div> :
             (
-             <>
-               <div className="overflow-x-auto">
-                 <table className="w-full text-sm">
-                   <thead className="bg-muted/30">
-                     {/* THÊM CỘT "HOẠT ĐỘNG" */}
-                     <tr className="border-b">
-                       <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Tên nhân viên</th>
-                       <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Liên hệ</th>
-                       <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Vai trò</th>
-                       <th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Hoạt động</th>
-                       <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Ngày tham gia</th>
-                       <th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Trạng thái</th>
-                       <th className="text-center py-2.5 px-3 font-semibold text-foreground/80 w-[100px]">Hành động</th>
-                     </tr>
-                   </thead>
-                   <tbody>
-                     {employees.map((employee) => (
-                       <tr key={employee.id} className={`border-b last:border-b-0 hover:bg-muted/20 transition-colors ${!employee.active ? 'opacity-60 bg-gray-50 dark:bg-gray-900/30' : ''}`}>
-                         <td className="py-2 px-3 font-medium text-foreground">{employee.name}</td>
-                         <td className="py-2 px-3 text-muted-foreground text-xs">
-                           <div className="flex items-center gap-1.5"><Mail size={14} /> <span>{employee.email}</span></div>
-                           <div className="flex items-center gap-1.5 mt-1"><Phone size={14} /> <span>{employee.phone || "-"}</span></div>
-                         </td>
-                         <td className="py-2 px-3 font-medium">{employee.role}</td> 
-                         {/* THÊM DỮ LIỆU "activityCount" */}
-                         <td className="py-2 px-3 text-center text-muted-foreground">{employee.activityCount}</td>
-                         <td className="py-2 px-3 text-muted-foreground">{new Date(employee.joinDate).toLocaleDateString('vi-VN')}</td>
-                         <td className="py-2 px-3 text-center">
-                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${employee.active ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"}`}>
-                             {employee.active ? "Hoạt động" : "Ngừng HĐ"}
-                           </span>
-                         </td>
-                         <td className="py-2 px-3">
-                            <div className="flex gap-1.5 justify-center">
-                             <Button variant="outline" size="icon" className="w-7 h-7" title="Sửa" onClick={() => handleEdit(employee)}><Edit2 size={14} /></Button>
-                             {employee.active ? (
-                               <Button variant="outline" size="icon" className="w-7 h-7 text-destructive border-destructive hover:bg-destructive/10" title="Ngừng hoạt động" onClick={() => setDialogState({ isOpen: true, action: 'delete', employee: employee })}>
-                                 <Trash2 size={14} />
-                               </Button>
-                             ) : (
-                               <>
-                                 <Button variant="outline" size="icon" className="w-7 h-7 text-green-600 border-green-600 hover:bg-green-100/50" title="Kích hoạt lại" onClick={() => setDialogState({ isOpen: true, action: 'reactivate', employee: employee })}>
-                                   <RotateCcw size={14} /> 
-                                 </Button>
-                                 
-                                 {/* THÊM LOGIC NÚT XÓA: Chỉ hiện khi activityCount == 0 */}
-                                 {employee.activityCount === 0 && (
-                                    <Button variant="outline" size="icon" className="w-7 h-7 text-red-700 border-red-700 hover:bg-red-100/50 dark:text-red-500 dark:border-red-500 dark:hover:bg-red-900/30" title="XÓA VĨNH VIỄN" onClick={() => setDialogState({ isOpen: true, action: 'permanentDelete', employee: employee })}>
-                                        <XCircle size={14} />
-                                    </Button>
-                                 )}
-                               </>
-                             )}
-                           </div>
-                         </td>
-                       </tr>
-                     ))}
-                   </tbody>
-                 </table>
-               </div>
-               {totalPages > 1 && (<div className="flex justify-center pt-4"><Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} /></div>)}
-             </>
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/30">
+                      <tr className="border-b">
+                        <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Tên nhân viên</th>
+                        <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Liên hệ</th>
+                        <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Vai trò</th>
+                        <th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Hoạt động</th>
+                        <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Ngày tham gia</th>
+                        <th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Trạng thái</th>
+                        <th className="text-center py-2.5 px-3 font-semibold text-foreground/80 w-[100px]">Hành động</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {employees.map((employee) => (
+                        <tr key={employee.id} className={`border-b last:border-b-0 hover:bg-muted/20 transition-colors ${!employee.active ? 'opacity-60 bg-gray-50 dark:bg-gray-900/30' : ''}`}>
+                          <td className="py-2 px-3 font-medium text-foreground">{employee.name}</td>
+                          <td className="py-2 px-3 text-muted-foreground text-xs">
+                            <div className="flex items-center gap-1.5"><Mail size={14} /> <span>{employee.email}</span></div>
+                            <div className="flex items-center gap-1.5 mt-1"><Phone size={14} /> <span>{employee.phone || "-"}</span></div>
+                          </td>
+                          <td className="py-2 px-3 font-medium">{employee.role}</td> 
+                          <td className="py-2 px-3 text-center text-muted-foreground">{employee.activityCount}</td>
+                          <td className="py-2 px-3 text-muted-foreground">{new Date(employee.joinDate).toLocaleDateString('vi-VN')}</td>
+                          <td className="py-2 px-3 text-center">
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${employee.active ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"}`}>
+                              {employee.active ? "Hoạt động" : "Ngừng HĐ"}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3">
+                             <div className="flex gap-1.5 justify-center">
+                              <Button variant="outline" size="icon" className="w-7 h-7" title="Sửa" onClick={() => handleEdit(employee)}><Edit2 size={14} /></Button>
+                              {employee.active ? (
+                                <Button variant="outline" size="icon" className="w-7 h-7 text-destructive border-destructive hover:bg-destructive/10" title="Ngừng hoạt động" onClick={() => setDialogState({ isOpen: true, action: 'delete', employee: employee })}>
+                                  <Trash2 size={14} />
+                                </Button>
+                              ) : (
+                                <>
+                                  <Button variant="outline" size="icon" className="w-7 h-7 text-green-600 border-green-600 hover:bg-green-100/50" title="Kích hoạt lại" onClick={() => setDialogState({ isOpen: true, action: 'reactivate', employee: employee })}>
+                                    <RotateCcw size={14} /> 
+                                  </Button>
+                                  
+                                  {employee.activityCount === 0 && (
+                                     <Button variant="outline" size="icon" className="w-7 h-7 text-red-700 border-red-700 hover:bg-red-100/50 dark:text-red-500 dark:border-red-500 dark:hover:bg-red-900/30" title="XÓA VĨNH VIỄN" onClick={() => setDialogState({ isOpen: true, action: 'permanentDelete', employee: employee })}>
+                                             <XCircle size={14} />
+                                     </Button>
+                                  )}
+                                </>
+                              )}
+                             </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {totalPages > 1 && (<div className="flex justify-center pt-4"><Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} /></div>)}
+              </>
             )}
         </CardContent>
 

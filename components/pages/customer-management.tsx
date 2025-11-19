@@ -6,13 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Plus, Edit2, Trash2, Search, RotateCcw, Mail, Phone, XCircle } from "lucide-react"; // <-- THÊM XCircle
+import { Plus, Edit2, Trash2, Search, RotateCcw, Mail, Phone, XCircle } from "lucide-react";
 import { useAuthStore } from "@/lib/authStore";
 import { Pagination } from "@/components/store/pagination";
 import { toast } from "sonner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { manualFetchApi } from "@/lib/api";
-// THÊM: Import Alert Dialog
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,12 +25,10 @@ import {
 
 const ITEMS_PER_PAGE = 5;
 
-// --- Interfaces (Đã chuẩn) ---
+// --- Interfaces ---
 interface CustomerResponse {
   id: number;
   name: string; // Full Name
-  // Note: DTO của bạn có thể không cần firstName/lastName, 
-  // nhưng logic tách tên của bạn vẫn xử lý được
   firstName: string; 
   lastName: string;
   email: string;
@@ -52,10 +49,8 @@ interface CustomerFormData {
   active: boolean;
 }
 
-// Kiểu cho state lỗi
 type CustomerFormErrors = Partial<Record<keyof CustomerFormData, string>>;
 
-// Kiểu cho state của Dialog
 interface DialogState {
   isOpen: boolean;
   action: 'delete' | 'reactivate' | 'permanentDelete' | null;
@@ -72,6 +67,9 @@ export function CustomerManagement() {
   const [customers, setCustomers] = useState<CustomerResponse[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
+  // THÊM: State lưu tổng số bản ghi
+  const [totalCustomers, setTotalCustomers] = useState(0);
+  
   const [searchTerm, setSearchTerm] = useState("");
   const [isFetching, setIsFetching] = useState(false);
   const [filterStatus, setFilterStatus] = useState("ACTIVE");
@@ -83,18 +81,18 @@ export function CustomerManagement() {
     firstName: "", lastName: "", email: "", password: "", phone: null, active: true
   });
   
-  // === SỬA: State lỗi (Inline validation) ===
+  // State lỗi
   const [formErrors, setFormErrors] = useState<CustomerFormErrors>({});
   const [apiError, setApiError] = useState<string | null>(null);
 
-  // === THÊM: State quản lý dialog xác nhận ===
+  // State dialog
   const [dialogState, setDialogState] = useState<DialogState>({
     isOpen: false,
     action: null,
     customer: null,
   });
 
-  // --- API Fetching (Đã chuẩn) ---
+  // --- API Fetching ---
   const fetchCustomers = useCallback(async () => {
     setIsFetching(true);
     
@@ -108,8 +106,10 @@ export function CustomerManagement() {
     try {
       const result = await manualFetchApi(`/v1/users/customers?${query.toString()}`);
       if (result.status === 'SUCCESS' && result.data) {
-        setCustomers(result.data.content);
-        setTotalPages(result.data.totalPages);
+        // CẬP NHẬT: Thêm fallback và setTotalCustomers
+        setCustomers(result.data.content || []);
+        setTotalPages(result.data.totalPages ?? 0);
+        setTotalCustomers(result.data.totalElements ?? 0); // <-- Lấy tổng số bản ghi
       } else throw new Error(result.message || "Lỗi tải khách hàng");
     } catch (err: any) { 
       toast.error(`Lỗi: ${err.message}`); 
@@ -122,12 +122,12 @@ export function CustomerManagement() {
   // --- Handlers ---
   const resetForm = () => {
     setShowForm(false); setEditingId(null); 
-    setApiError(null); // <-- SỬA
-    setFormErrors({}); // <-- SỬA
+    setApiError(null);
+    setFormErrors({});
     setFormData({ firstName: "", lastName: "", email: "", password: "", phone: null, active: true });
   }
 
-  // === THÊM: Hàm Validate Mới ===
+  // Hàm Validate
   const validateForm = (): CustomerFormErrors => {
     const newErrors: CustomerFormErrors = {};
     const { firstName, lastName, email, password } = formData;
@@ -141,7 +141,6 @@ export function CustomerManagement() {
         newErrors.email = "Địa chỉ email không hợp lệ.";
     }
 
-    // Chỉ validate mật khẩu khi tạo mới (vì logic của bạn gọi API /register)
     if (!editingId) {
         if (!password || password.length < 6) {
             newErrors.password = "Mật khẩu (tối thiểu 6 ký tự) là bắt buộc.";
@@ -150,7 +149,6 @@ export function CustomerManagement() {
     return newErrors;
   }
   
-  // === SỬA: handleSubmit (Tích hợp Inline Validation) ===
   const handleSubmit = async () => {
     setApiError(null);
     setFormErrors({});
@@ -172,7 +170,7 @@ export function CustomerManagement() {
         
         url = `/v1/users/${editingId}`;
         method = "PUT";
-        requestBody = { // UserRequestDTO
+        requestBody = { 
             firstName: formData.firstName.trim(),
             lastName: formData.lastName.trim(),
             email: formData.email.trim(),
@@ -180,15 +178,13 @@ export function CustomerManagement() {
             active: formData.active,
         };
     } else {
-        // Logic tạo mới của bạn gọi /register
         url = `/v1/auth/register`; 
         method = "POST";
-        requestBody = { // RegisterRequestDTO
+        requestBody = { 
             firstName: formData.firstName.trim(),
             lastName: formData.lastName.trim(),
             email: formData.email.trim(),
             password: formData.password,
-            // (API Register không nhận phone/active)
         };
     }
 
@@ -207,18 +203,16 @@ export function CustomerManagement() {
       }
       
     } catch (err: any) {
-      // Bắt lỗi trùng lặp (ví dụ: email)
       if (err.message && (err.message.toLowerCase().includes("đã tồn tại") || err.message.toLowerCase().includes("duplicate"))) {
           setFormErrors({ email: err.message });
           toast.error(err.message);
       } else {
           toast.error(`Lỗi: ${err.message}`);
-          setApiError(err.message); // Lỗi API chung
+          setApiError(err.message);
       }
     }
   };
 
-  // handleEdit (Đã cập nhật reset lỗi)
   const handleEdit = (customer: CustomerResponse) => {
     if (!isAdmin) {
       toast.error("Bạn không có quyền sửa.");
@@ -241,7 +235,7 @@ export function CustomerManagement() {
         email: customer.email,
         phone: customer.phone || null,
         active: customer.active,
-        password: "" // Xóa password khi mở form sửa
+        password: "" 
     });
     setEditingId(customer.id);
     setShowForm(true);
@@ -249,7 +243,6 @@ export function CustomerManagement() {
     setFormErrors({});
   };
 
-  // === THAY THẾ: Logic Dialog (Thay cho handleDelete, handleReactivate) ===
   const closeDialog = () => {
     setDialogState({ isOpen: false, action: null, customer: null });
   };
@@ -259,7 +252,6 @@ export function CustomerManagement() {
     if (!customer || !isAdmin) { toast.error("Hành động không hợp lệ."); closeDialog(); return; };
 
     try {
-      // 1. Logic cho "Ngừng hoạt động"
       if (action === 'delete') {
         const result = await manualFetchApi(`/v1/users/${customer.id}`, { method: "DELETE" });
         if (result.status === 'SUCCESS') {
@@ -268,11 +260,9 @@ export function CustomerManagement() {
         } else throw new Error(result.message || "Ngừng hoạt động thất bại");
       } 
       
-      // 2. Logic cho "Kích hoạt lại"
       else if (action === 'reactivate') {
         const url = `/v1/users/${customer.id}`;
         
-        // Tách tên
         const fullName = customer.name || "";
         const lastSpaceIndex = fullName.lastIndexOf(' ');
         let firstName = "";
@@ -283,10 +273,10 @@ export function CustomerManagement() {
             lastName = fullName.substring(0, lastSpaceIndex);
         }
 
-        const requestBody = { // UserRequestDTO
+        const requestBody = { 
             firstName: firstName, lastName: lastName,
             email: customer.email, phone: customer.phone,
-            active: true // Set active = true
+            active: true 
         };
         const result = await manualFetchApi(url, { method: "PUT", body: JSON.stringify(requestBody) });
         if (result.status === 'SUCCESS') {
@@ -295,9 +285,7 @@ export function CustomerManagement() {
         } else throw new Error(result.message || "Kích hoạt thất bại");
       } 
       
-      // 3. Logic cho "Xóa vĩnh viễn"
       else if (action === 'permanentDelete') {
-        // Backend sẽ kiểm tra (totalOrders > 0)
         const result = await manualFetchApi(`/v1/users/permanent-delete/${customer.id}`, { method: "DELETE" });
         if (result.status === 'SUCCESS') {
           toast.success("Đã xóa vĩnh viễn khách hàng.");
@@ -336,7 +324,7 @@ export function CustomerManagement() {
       {/* Lỗi API chung */}
       {apiError && ( <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md border border-destructive/30 animate-shake">{apiError}</div> )}
       
-      {/* Form (Đã cập nhật Inline Validation) */}
+      {/* Form */}
       {showForm && isAdmin && (
         <Card className="border-blue-500/50 shadow-md animate-fade-in">
           <CardHeader>
@@ -402,10 +390,11 @@ export function CustomerManagement() {
         </Card>
       )}
 
-      {/* Bảng Danh sách Khách hàng (ĐÃ THÊM NÚT XÓA CỨNG) */}
+      {/* Bảng Danh sách Khách hàng */}
       <Card className="shadow-sm">
         <CardHeader>
-          <CardTitle className="text-xl font-semibold">Danh sách khách hàng</CardTitle>
+          {/* CẬP NHẬT: Hiển thị tổng số bản ghi */}
+          <CardTitle className="text-xl font-semibold">Danh sách khách hàng ({totalCustomers})</CardTitle>
           <Tabs value={filterStatus} onValueChange={handleTabChange} className="mt-4">
             <TabsList className="grid w-full grid-cols-3 md:w-[400px]">
               <TabsTrigger value="ACTIVE">Đang hoạt động</TabsTrigger>
@@ -422,74 +411,73 @@ export function CustomerManagement() {
           {isFetching ? <div className="text-center py-6 text-muted-foreground animate-pulse">Đang tải...</div> :
             customers.length === 0 ? <div className="text-center py-6 text-muted-foreground">{searchTerm ? "Không tìm thấy." : `Không có khách hàng nào (${filterStatus.toLowerCase()}).`}</div> :
             (
-             <>
-               <div className="overflow-x-auto">
-                 <table className="w-full text-sm">
-                   <thead className="bg-muted/30">
-                     <tr className="border-b">
-                       <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Tên khách hàng</th>
-                       <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Liên hệ</th>
-                       <th className="text-right py-2.5 px-3 font-semibold text-foreground/80">Tổng đơn</th>
-                       <th className="text-right py-2.5 px-3 font-semibold text-foreground/80">Tổng chi (₫)</th>
-                       <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Ngày tham gia</th>
-                       <th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Trạng thái</th>
-                       {isAdmin && (
-                         <th className="text-center py-2.5 px-3 font-semibold text-foreground/80 w-[100px]">Hành động</th>
-                       )}
-                     </tr>
-                   </thead>
-                   <tbody>
-                     {customers.map((customer) => (
-                       <tr key={customer.id} className={`border-b last:border-b-0 hover:bg-muted/20 transition-colors ${!customer.active ? 'opacity-60 bg-gray-50 dark:bg-gray-900/30' : ''}`}>
-                         <td className="py-2 px-3 font-medium text-foreground">{customer.name}</td>
-                         <td className="py-2 px-3 text-muted-foreground text-xs">
-                           <div className="flex items-center gap-1.5"><Mail size={14} /> <span>{customer.email}</span></div>
-                           <div className="flex items-center gap-1.5 mt-1"><Phone size={14} /> <span>{customer.phone || "-"}</span></div>
-                         </td>
-                         <td className="py-2 px-3 text-right">{customer.totalOrders}</td>
-                         <td className="py-2 px-3 text-right">{customer.totalSpent.toLocaleString('vi-VN')}</td>
-                         <td className="py-2 px-3 text-muted-foreground">{new Date(customer.joinDate).toLocaleDateString('vi-VN')}</td>
-                           <td className="py-2 px-3 text-center">
-                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${customer.active ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"}`}>
-                             {customer.active ? "Hoạt động" : "Ngừng HĐ"}
-                           </span>
-                         </td>
-                         {isAdmin && (
-                           <td className="py-2 px-3">
-                             <div className="flex gap-1.5 justify-center">
-                               <Button variant="outline" size="icon" className="w-7 h-7" title="Sửa" onClick={() => handleEdit(customer)}><Edit2 size={14} /></Button>
-                               {customer.active ? (
-                                 <Button variant="outline" size="icon" className="w-7 h-7 text-destructive border-destructive hover:bg-destructive/10" title="Ngừng hoạt động" onClick={() => setDialogState({ isOpen: true, action: 'delete', customer: customer })}>
-                                   <Trash2 size={14} />
-                                 </Button>
-                               ) : (
-                                 <>
-                                   <Button variant="outline" size="icon" className="w-7 h-7 text-green-600 border-green-600 hover:bg-green-100/50" title="Kích hoạt lại" onClick={() => setDialogState({ isOpen: true, action: 'reactivate', customer: customer })}>
-                                     <RotateCcw size={14} /> 
-                                   </Button>
-                                   
-                                   {/* LOGIC MỚI: Chỉ hiện nút xóa khi totalOrders == 0 */}
-                                   {customer.totalOrders === 0 && (
-                                      <Button variant="outline" size="icon" className="w-7 h-7 text-red-700 border-red-700 hover:bg-red-100/50 dark:text-red-500 dark:border-red-500 dark:hover:bg-red-900/30" title="XÓA VĨNH VIỄN" onClick={() => setDialogState({ isOpen: true, action: 'permanentDelete', customer: customer })}>
-                                          <XCircle size={14} />
-                                      </Button>
-                                   )}
-                                 </>
-                               )}
-                             </div>
-                           </td>
-                         )}
-                       </tr>
-                     ))}
-                   </tbody>
-                 </table>
-               </div>
-               {totalPages > 1 && (<div className="flex justify-center pt-4"><Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} /></div>)}
-             </>
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/30">
+                      <tr className="border-b">
+                        <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Tên khách hàng</th>
+                        <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Liên hệ</th>
+                        <th className="text-right py-2.5 px-3 font-semibold text-foreground/80">Tổng đơn</th>
+                        <th className="text-right py-2.5 px-3 font-semibold text-foreground/80">Tổng chi (₫)</th>
+                        <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Ngày tham gia</th>
+                        <th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Trạng thái</th>
+                        {isAdmin && (
+                          <th className="text-center py-2.5 px-3 font-semibold text-foreground/80 w-[100px]">Hành động</th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {customers.map((customer) => (
+                        <tr key={customer.id} className={`border-b last:border-b-0 hover:bg-muted/20 transition-colors ${!customer.active ? 'opacity-60 bg-gray-50 dark:bg-gray-900/30' : ''}`}>
+                          <td className="py-2 px-3 font-medium text-foreground">{customer.name}</td>
+                          <td className="py-2 px-3 text-muted-foreground text-xs">
+                            <div className="flex items-center gap-1.5"><Mail size={14} /> <span>{customer.email}</span></div>
+                            <div className="flex items-center gap-1.5 mt-1"><Phone size={14} /> <span>{customer.phone || "-"}</span></div>
+                          </td>
+                          <td className="py-2 px-3 text-right">{customer.totalOrders}</td>
+                          <td className="py-2 px-3 text-right">{customer.totalSpent.toLocaleString('vi-VN')}</td>
+                          <td className="py-2 px-3 text-muted-foreground">{new Date(customer.joinDate).toLocaleDateString('vi-VN')}</td>
+                            <td className="py-2 px-3 text-center">
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${customer.active ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300" : "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"}`}>
+                              {customer.active ? "Hoạt động" : "Ngừng HĐ"}
+                            </span>
+                          </td>
+                          {isAdmin && (
+                            <td className="py-2 px-3">
+                              <div className="flex gap-1.5 justify-center">
+                                <Button variant="outline" size="icon" className="w-7 h-7" title="Sửa" onClick={() => handleEdit(customer)}><Edit2 size={14} /></Button>
+                                {customer.active ? (
+                                  <Button variant="outline" size="icon" className="w-7 h-7 text-destructive border-destructive hover:bg-destructive/10" title="Ngừng hoạt động" onClick={() => setDialogState({ isOpen: true, action: 'delete', customer: customer })}>
+                                    <Trash2 size={14} />
+                                  </Button>
+                                ) : (
+                                  <>
+                                    <Button variant="outline" size="icon" className="w-7 h-7 text-green-600 border-green-600 hover:bg-green-100/50" title="Kích hoạt lại" onClick={() => setDialogState({ isOpen: true, action: 'reactivate', customer: customer })}>
+                                      <RotateCcw size={14} /> 
+                                    </Button>
+                                    
+                                    {customer.totalOrders === 0 && (
+                                       <Button variant="outline" size="icon" className="w-7 h-7 text-red-700 border-red-700 hover:bg-red-100/50 dark:text-red-500 dark:border-red-500 dark:hover:bg-red-900/30" title="XÓA VĨNH VIỄN" onClick={() => setDialogState({ isOpen: true, action: 'permanentDelete', customer: customer })}>
+                                              <XCircle size={14} />
+                                       </Button>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {totalPages > 1 && (<div className="flex justify-center pt-4"><Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} /></div>)}
+              </>
             )}
         </CardContent>
 
-        {/* THÊM: Dialog Xác nhận */}
+        {/* Dialog Xác nhận */}
         <AlertDialog open={dialogState.isOpen} onOpenChange={(open) => !open && closeDialog()}>
           <AlertDialogContent>
             <AlertDialogHeader>

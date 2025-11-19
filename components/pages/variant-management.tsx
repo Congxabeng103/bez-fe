@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Edit2, Trash2, X, Search, ArrowLeft, ArrowRight, RotateCcw, XCircle } from "lucide-react"; // <-- THÊM XCircle
+import { Plus, Edit2, Trash2, X, Search, ArrowLeft, ArrowRight, RotateCcw, XCircle } from "lucide-react"; 
 import { useAuthStore } from "@/lib/authStore";
 import { ImageUpload } from "@/components/store/image-upload";
 import { Pagination } from "@/components/store/pagination";
@@ -14,7 +14,6 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox"; 
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"; 
 import { manualFetchApi } from "@/lib/api";
-// THÊM: Import Alert Dialog
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,10 +25,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-// === SỬA LỖI 1: DI CHUYỂN INTERFACE RA NGOÀI ===
+// === INTERFACES ===
 const ITEMS_PER_PAGE = 5;
 const PRODUCTS_PER_PAGE = 5;
-const CLEAR_SELECTION_VALUE = "__CLEAR__"; // (Thêm hằng số)
 
 interface ProductOptionValueResponse { id: number; value: string; }
 interface ProductOptionResponse { id: number; name: string; values: ProductOptionValueResponse[]; }
@@ -37,17 +35,12 @@ interface ProductBrief { id: number; name: string; variantCount: number; }
 
 interface VariantResponse {
   id: number; sku: string; price: number; stockQuantity: number;
-  imageUrl: string | null; // <-- Sửa: Cho phép null
+  imageUrl: string | null; 
   attributes: Record<string, string>; createdAt: string;
   active: boolean; 
   orderCount: number;
   salePrice: number | null; 
   isPromotionStillValid: boolean | null;
-}
-
-interface ProductDetailResponse {
-  product: ProductBrief;
-  attributes: ProductOptionResponse[];
 }
 
 interface Combination {
@@ -60,14 +53,11 @@ interface EditingVariantData {
   imageUrl: string; active: boolean; 
 }
 
-// Kiểu cho state của Dialog
 interface DialogState<T> {
   isOpen: boolean;
   action: 'delete' | 'reactivate' | 'permanentDelete' | 'cancelCreate' | 'cancelBatch' | null;
   data: T | null;
 }
-// === KẾT THÚC SỬA LỖI 1 ===
-
 
 // --- Component Chính: Quản lý Biến thể ---
 export function VariantManagement() {
@@ -83,11 +73,15 @@ export function VariantManagement() {
   
   const [productPage, setProductPage] = useState(1);
   const [totalProductPages, setTotalProductPages] = useState(0);
+  const [totalProducts, setTotalProducts] = useState(0); // <-- State đếm sản phẩm
+  
   const [productSearchTerm, setProductSearchTerm] = useState("");
   const [isFetchingProducts, setIsFetchingProducts] = useState(false);
   
   const [variantPage, setVariantPage] = useState(1);
   const [totalVariantPages, setTotalVariantPages] = useState(0);
+  const [totalVariants, setTotalVariants] = useState(0); // <-- State đếm biến thể
+  
   const [variantSearchTerm, setVariantSearchTerm] = useState("");
   const [isFetchingVariants, setIsFetchingVariants] = useState(false);
   
@@ -97,7 +91,7 @@ export function VariantManagement() {
   const [generatedCombinations, setGeneratedCombinations] = useState<Combination[]>([]);
   
   const [isLoadingProductOptions, setIsLoadingProductOptions] = useState(false);
-  const [isLoadingBatch, setIsLoadingBatch] = useState(false); // (Thêm state loading cho batch)
+  const [isLoadingBatch, setIsLoadingBatch] = useState(false); 
   
   const [editingVariantId, setEditingVariantId] = useState<number | null>(null);
   const [editingVariantData, setEditingVariantData] = useState<EditingVariantData | null>(null);
@@ -106,10 +100,9 @@ export function VariantManagement() {
   const [viewingProductId, setViewingProductId] = useState<number | null>(null);
   const [viewingProductName, setViewingProductName] = useState<string>("");
   
-  const [apiError, setApiError] = useState<string | null>(null); // <-- Sửa: Dùng tên này
+  const [apiError, setApiError] = useState<string | null>(null); 
   const [filterStatus, setFilterStatus] = useState("ALL"); 
   
-  // (Các state cho modal/dialog)
   const [modalError, setModalError] = useState<string | null>(null); 
   const [variantDialogState, setVariantDialogState] = useState<DialogState<VariantResponse>>({ isOpen: false, action: null, data: null });
   const [batchDialogState, setBatchDialogState] = useState<DialogState<null>>({ isOpen: false, action: null, data: null });
@@ -126,7 +119,8 @@ export function VariantManagement() {
       const result = await manualFetchApi(`/v1/products/brief?${query.toString()}`);
       if (result.status === 'SUCCESS' && result.data) {
         setProductsBrief(result.data.content || []); 
-        setTotalProductPages(result.data.totalPages);
+        setTotalProductPages(result.data.totalPages ?? 0);
+        setTotalProducts(result.data.totalElements ?? 0); // <-- Cập nhật tổng số SP
       } else throw new Error(result.message || "Lỗi tải DS sản phẩm");
     } catch (err: any) { 
       toast.error(err.message); 
@@ -148,7 +142,8 @@ export function VariantManagement() {
       const result = await manualFetchApi(`/v1/variants/product/${viewingProductId}?${query.toString()}`);
       if (result.status === 'SUCCESS' && result.data) {
         setProductVariants(result.data.content || []);
-        setTotalVariantPages(result.data.totalPages);
+        setTotalVariantPages(result.data.totalPages ?? 0);
+        setTotalVariants(result.data.totalElements ?? 0); // <-- Cập nhật tổng số Biến thể
       } else throw new Error(result.message || "Lỗi tải biến thể");
     } catch (err: any) { 
       setApiError(err.message); 
@@ -199,7 +194,6 @@ export function VariantManagement() {
     return valueObj ? valueObj.id : null;
   };
   
-  // (Logic tạo Batch + Validate)
   const handleSaveVariants = async () => {
     if (!canEdit) { toast.error("Bạn không có quyền."); return; }
     if (!selectedProductId || generatedCombinations.length === 0) { toast.error("Thiếu thông tin sản phẩm hoặc biến thể."); return; }
@@ -214,7 +208,7 @@ export function VariantManagement() {
     }
     if (invalid) return;
 
-    setIsLoadingBatch(true); // <-- Bật loading
+    setIsLoadingBatch(true); 
 
     const variantsRawData = generatedCombinations.map(combo => {
       const originalAttributes = combo.attributes; 
@@ -258,13 +252,13 @@ export function VariantManagement() {
     } catch (err: any) {
       toast.error(`Lỗi khi lưu biến thể: ${err.message}`);
     } finally {
-      setIsLoadingBatch(false); // <-- Tắt loading
+      setIsLoadingBatch(false); 
     }
   };
   
   const handleViewProductVariants = (product: ProductBrief) => {
     setViewingProductId(product.id); setViewingProductName(product.name);
-    setVariantPage(1); setVariantSearchTerm(""); setFilterStatus("ALL"); // <-- Sửa: Reset filter
+    setVariantPage(1); setVariantSearchTerm(""); setFilterStatus("ALL"); 
   };
   const handleBackToList = () => {
     setViewingProductId(null); setViewingProductName("");
@@ -301,7 +295,6 @@ export function VariantManagement() {
     setGeneratedCombinations(newGeneratedCombinations);
   };
   
-  // (Mở Modal Sửa)
   const handleEditVariant = (variant: VariantResponse) => {
     if (!canEdit) { toast.error("Bạn không có quyền sửa."); return; }
     setEditingVariantId(variant.id);
@@ -309,16 +302,15 @@ export function VariantManagement() {
         sku: variant.sku, price: variant.price, stockQuantity: variant.stockQuantity, 
         imageUrl: variant.imageUrl || "", active: variant.active 
     });
-    setModalError(null); // <-- Reset lỗi
+    setModalError(null); 
     setShowEditModal(true);
   };
   
-  // === SỬA: handleSaveEditedVariant (Tích hợp Inline Modal Validation) ===
   const handleSaveEditedVariant = async () => {
     if (!canEdit || !editingVariantId || !editingVariantData) {
       toast.error("Không có quyền hoặc thiếu dữ liệu."); return;
     }
-    setModalError(null); // Reset lỗi
+    setModalError(null); 
     
     const updateRequest = { 
         sku: editingVariantData.sku.trim(), price: Number(editingVariantData.price), 
@@ -327,7 +319,6 @@ export function VariantManagement() {
         active: editingVariantData.active 
     };
     
-    // Validate
     if (!updateRequest.sku) { setModalError("SKU là bắt buộc"); return; }
     if (isNaN(updateRequest.price) || updateRequest.price <= 0) { setModalError("Giá không hợp lệ"); return; }
     if (isNaN(updateRequest.stockQuantity) || updateRequest.stockQuantity < 0 || !Number.isInteger(updateRequest.stockQuantity)) { setModalError("Tồn kho không hợp lệ"); return; }
@@ -342,11 +333,10 @@ export function VariantManagement() {
             fetchProductVariants(); 
         } else throw new Error(result.message || "Cập nhật thất bại");
     } catch (err: any) { 
-        setModalError(err.message); // <-- Gán lỗi vào modal
+        setModalError(err.message); 
     }
   };
   
-  // === SỬA: Logic Dialog cho BIẾN THỂ ===
   const closeVariantDialog = () => {
     setVariantDialogState({ isOpen: false, action: null, data: null });
   };
@@ -369,8 +359,8 @@ export function VariantManagement() {
       else if (action === 'reactivate') {
         if (!canEdit) { toast.error("Bạn không có quyền."); return; }
         const requestBody = { 
-            sku: variant.sku, price: variant.price, stockQuantity: variant.stockQuantity,
-            imageUrl: variant.imageUrl, active: true 
+          sku: variant.sku, price: variant.price, stockQuantity: variant.stockQuantity,
+          imageUrl: variant.imageUrl, active: true 
         };
         const result = await manualFetchApi(`/v1/variants/${variant.id}`, { method: "PUT", body: JSON.stringify(requestBody) });
         if (result.status === 'SUCCESS') { toast.success("Kích hoạt lại thành công!"); fetchProductVariants(); }
@@ -394,7 +384,6 @@ export function VariantManagement() {
     }
   };
 
-  // === SỬA: Logic Dialog Hủy Batch ===
   const closeBatchDialog = () => {
     setBatchDialogState({ isOpen: false, action: null, data: null });
   };
@@ -403,12 +392,11 @@ export function VariantManagement() {
        setGeneratedCombinations([]);
     } else if (batchDialogState.action === 'cancelCreate') {
        setShowForm(false);
-       // Reset toàn bộ state của form tạo
        setSelectedProductId("");
        setProductSpecificOptions([]); 
        setSelectedAttributesMap({});
        setGeneratedCombinations([]);
-       setProductSearchTerm(""); // Reset search
+       setProductSearchTerm(""); 
        setProductPage(1);
     }
     closeBatchDialog();
@@ -423,13 +411,18 @@ export function VariantManagement() {
   
   // --- JSX Rendering ---
 
-  // *** Màn hình 2: Xem Danh sách Biến thể (ĐÃ "CHỈNH CHU") ***
+  // *** Màn hình 2: Xem Danh sách Biến thể ***
   if (viewingProductId && viewingProductName) {
     return (
       <div className="p-4 sm:p-6 space-y-6 animate-fade-in">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b pb-4 mb-4">
           <Button variant="outline" onClick={handleBackToList} className="gap-1.5 self-start sm:self-center"> <ArrowLeft size={18} /> <span className="hidden sm:inline">Quay lại DS Sản phẩm</span><span className="sm:hidden">Quay lại</span> </Button>
-          <div className="flex-1 min-w-0 order-first sm:order-none"> <h1 className="text-xl sm:text-2xl font-bold text-foreground truncate text-center sm:text-left" title={viewingProductName}> Biến thể của: {viewingProductName} </h1> </div>
+          <div className="flex-1 min-w-0 order-first sm:order-none"> 
+            {/* CẬP NHẬT: Hiển thị số lượng biến thể */}
+            <h1 className="text-xl sm:text-2xl font-bold text-foreground truncate text-center sm:text-left" title={viewingProductName}> 
+              Biến thể của: {viewingProductName} ({totalVariants})
+            </h1> 
+          </div>
         </div>
         <Tabs value={filterStatus} onValueChange={handleTabChange}>
           <TabsList className="grid w-full grid-cols-3 md:w-[400px]">
@@ -508,7 +501,6 @@ export function VariantManagement() {
                                     <RotateCcw size={14} /> 
                                   </Button>
                                 )}
-                                {/* Nút Xóa vĩnh viễn (ĐÃ SỬA ICON VÀ LOGIC) */}
                                 {!variant.active && variant.orderCount === 0 && isAdmin && (
                                   <Button 
                                     variant="outline" 
@@ -534,7 +526,7 @@ export function VariantManagement() {
           </>
         )}
 
-        {/* Modal Sửa Biến Thể (ĐÃ THÊM HIỂN THỊ LỖI) */}
+        {/* Modal Sửa Biến Thể */}
         {showEditModal && editingVariantData && (
           <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 animate-fade-in duration-200">
             <Card className="w-full max-w-md bg-card shadow-xl animate-scale-in duration-200">
@@ -606,7 +598,7 @@ export function VariantManagement() {
     );
   }
 
-  // *** Màn hình 1: Danh sách Sản phẩm & Form Tạo Biến thể Mới (ĐÃ "CHỈNH CHU") ***
+  // *** Màn hình 1: Danh sách Sản phẩm & Form Tạo Biến thể Mới ***
   return (
     <div className="p-4 sm:p-6 space-y-6">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
@@ -778,7 +770,7 @@ export function VariantManagement() {
                 if (generatedCombinations.length > 0) {
                   setBatchDialogState({ isOpen: true, action: 'cancelCreate', data: null });
                 } else {
-                  setShowForm(false); // (Reset form được gọi trong hàm dialog)
+                  setShowForm(false); 
                   setSelectedProductId("");
                   setProductSpecificOptions([]); 
                   setSelectedAttributesMap({});
@@ -790,11 +782,12 @@ export function VariantManagement() {
         </Card>
       )}
 
-      {/* --- Danh sách Sản phẩm (Đã "Chỉnh Chu") --- */}
+      {/* --- Danh sách Sản phẩm --- */}
       {!showForm && (
         <Card className="shadow-sm">
           <CardHeader>
-            <CardTitle className="text-xl font-semibold">Danh sách sản phẩm</CardTitle>
+            {/* CẬP NHẬT: Hiển thị số lượng sản phẩm */}
+            <CardTitle className="text-xl font-semibold">Danh sách sản phẩm ({totalProducts})</CardTitle>
             <p className="text-sm text-muted-foreground pt-1">Chọn một sản phẩm để xem các biến thể.</p>
           </CardHeader>
           <CardContent>
@@ -828,7 +821,7 @@ export function VariantManagement() {
                         variant="outline" 
                         size="sm" 
                         className="gap-1.5 h-8 text-xs px-3"
-                        onClick={() => handleViewProductVariants(product as any)} // (Cast 'any' vì ProductBrief thiếu nhiều trường so với ProductResponse)
+                        onClick={() => handleViewProductVariants(product as any)} 
                       >
                         Xem biến thể <ArrowRight size={14} />
                       </Button>
@@ -851,8 +844,7 @@ export function VariantManagement() {
         </Card>
       )}
 
-      {/* === THÊM: 3 Dialog Xác nhận === */}
-      {/* (Dialog 1 và 2 đã có ở Màn hình 2, Dialog 3 ở đây) */}
+      {/* === Dialog Xác nhận (Batch) === */}
       <AlertDialog open={batchDialogState.isOpen} onOpenChange={(open) => !open && closeBatchDialog()}>
           <AlertDialogContent>
             <AlertDialogHeader>

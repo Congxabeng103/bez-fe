@@ -168,10 +168,11 @@ const formatCurrency = (amount: number) => `₫${amount.toLocaleString('vi-VN')}
 export function OrderManagement() {
   // --- States ---
   const [orders, setOrders] = useState<AdminOrderDTO[]>([]);
-  const [pagination, setPagination] = useState({ page: 0, totalPages: 0, totalElements: 0 });
+  const [page, setPage] = useState(1); // Client tự quản lý số trang (bắt đầu từ 1)
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalElements, setTotalElements] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [currentPage, setCurrentPage] = useState(0);
   const [statusFilter, setStatusFilter] = useState<OrderStatus | "ALL">("ALL");
 
   // States cho Modal
@@ -370,28 +371,31 @@ export function OrderManagement() {
     setIsLoading(true);
     try {
       const query = new URLSearchParams();
-      query.append("page", String(currentPage));
+      
+      // SỬA: Gửi page - 1 (vì Client đếm từ 1, Server đếm từ 0)
+      query.append("page", String(page - 1)); 
       query.append("size", String(ITEMS_PER_PAGE));
       query.append("status", statusFilter);
+      
       if (searchTerm) {
         query.append("search", searchTerm);
       }
       const response = await manualFetchApi(`/v1/orders?${query.toString()}`);
-      if (!response) return; // (Nếu lỗi 403, response có thể là null)
+      if (!response) return;
 
       const data: PageResponseDTO<AdminOrderDTO> = response.data;
-      setOrders(data.content);
-      setPagination({
-        page: data.number,
-        totalPages: data.totalPages,
-        totalElements: data.totalElements,
-      });
+      
+      // SỬA: Cập nhật dữ liệu
+      setOrders(data.content || []);
+      setTotalPages(data.totalPages ?? 0);
+      setTotalElements(data.totalElements ?? 0);
+
     } catch (err: any) {
       toast.error(err.message || "Lỗi khi tải danh sách đơn hàng.");
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, statusFilter, searchTerm]);
+  }, [page, statusFilter, searchTerm]); // Dependency là 'page'
 
   useEffect(() => {
     fetchOrders();
@@ -579,10 +583,10 @@ export function OrderManagement() {
   const handleCloseDetails = () => { setShowDetails(false); setSelectedOrder(null); };
   const handleStatusFilterChange = (newStatus: string) => {
     setStatusFilter(newStatus as OrderStatus | "ALL");
-    setCurrentPage(0);
+    setPage(1); // SỬA: Reset về trang 1
   };
   const handlePageChange = (newPage: number) => {
-    setCurrentPage(newPage - 1);
+    setPage(newPage); // SỬA: Cập nhật thẳng vào state page
   };
 
   // Hàm Xác nhận (Đã thêm 'confirmStock')
@@ -783,7 +787,7 @@ export function OrderManagement() {
       <Card>
         {/* ... (Phần CardHeader, Tabs, Search Input giữ nguyên) ... */}
         <CardHeader>
-          <CardTitle>Danh sách đơn hàng ({pagination.totalElements})</CardTitle>
+          <CardTitle>Danh sách đơn hàng ({totalElements})</CardTitle>
           <Tabs value={statusFilter} onValueChange={handleStatusFilterChange} className="mt-4">
             <TabsList className="grid w-full grid-cols-4 sm:grid-cols-8">
               <TabsTrigger value="ALL">Tất cả</TabsTrigger>
@@ -814,7 +818,7 @@ export function OrderManagement() {
             {/* --- KẾT THÚC THÊM --- */}
             </TabsList>
           </Tabs>
-          <div className="mt-4 flex gap-2 items-center"> <Search size={18} className="text-muted-foreground" /> <Input placeholder="Tìm mã đơn, tên khách, SĐT..." value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(0); }} className="flex-1 h-9" /> </div>
+          <div className="mt-4 flex gap-2 items-center"> <Search size={18} className="text-muted-foreground" /> <Input placeholder="Tìm mã đơn, tên khách, SĐT..." value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setPage(1) }} className="flex-1 h-9" /> </div>
         </CardHeader>
 
         {/* ... (Phần CardContent, Bảng <table> giữ nguyên) ... */}
@@ -921,11 +925,11 @@ export function OrderManagement() {
                 </table>
               </div>
               {/* ... (Pagination giữ nguyên) ... */}
-              {pagination.totalPages > 1 && (
+              {totalPages > 1 && (
                 <div className="flex justify-center pt-4">
                   <Pagination
-                    currentPage={pagination.page + 1}
-                    totalPages={pagination.totalPages}
+                    currentPage={page} // Luôn đúng vì là state client
+                    totalPages={totalPages}
                     onPageChange={handlePageChange}
                   />
                 </div>

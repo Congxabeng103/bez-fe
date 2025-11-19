@@ -7,14 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Plus, Edit2, Trash2, Search, RotateCcw, XCircle } from "lucide-react"; // <-- THÊM XCircle
+import { Plus, Edit2, Trash2, Search, RotateCcw, XCircle } from "lucide-react";
 import { useAuthStore } from "@/lib/authStore";
 import { Pagination } from "@/components/store/pagination";
 import { toast } from "sonner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ImageUpload } from "@/components/store/image-upload";
 import { manualFetchApi } from "@/lib/api";
-// THÊM: Import Alert Dialog
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,7 +27,7 @@ import {
 
 const ITEMS_PER_PAGE = 5;
 
-// --- Interfaces (Đã chuẩn) ---
+// --- Interfaces ---
 interface CategoryResponse { 
   id: number; 
   name: string; 
@@ -44,14 +43,12 @@ interface CategoryFormData {
   active: boolean; 
 }
 
-// Kiểu cho state lỗi
 type CategoryFormErrors = Partial<Record<keyof CategoryFormData, string>>;
 
-// Kiểu cho state của Dialog
 interface DialogState {
   isOpen: boolean;
   action: 'delete' | 'reactivate' | 'permanentDelete' | null;
-  category: CategoryResponse | null; // <-- Sửa: Dùng 'category'
+  category: CategoryResponse | null;
 }
 
 // --- Component ---
@@ -65,6 +62,9 @@ export function CategoryManagement() {
   const [categories, setCategories] = useState<CategoryResponse[]>([]);
   const [categoryPage, setCategoryPage] = useState(1);
   const [totalCategoryPages, setTotalCategoryPages] = useState(0);
+  // THÊM: State lưu tổng số bản ghi
+  const [totalCategories, setTotalCategories] = useState(0);
+
   const [categorySearchTerm, setCategorySearchTerm] = useState("");
   const [isFetching, setIsFetching] = useState(false);
   const [filterStatus, setFilterStatus] = useState("ACTIVE"); 
@@ -74,18 +74,18 @@ export function CategoryManagement() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [formData, setFormData] = useState<CategoryFormData>({ name: "", description: "", imageUrl: "", active: true });
   
-  // === SỬA: State lỗi (Inline validation) ===
+  // State lỗi
   const [formErrors, setFormErrors] = useState<CategoryFormErrors>({});
   const [apiError, setApiError] = useState<string | null>(null);
   
-  // === THÊM: State quản lý dialog xác nhận ===
+  // State dialog
   const [dialogState, setDialogState] = useState<DialogState>({
     isOpen: false,
     action: null,
-    category: null, // <-- Sửa: Dùng 'category'
+    category: null,
   });
 
-  // --- API Fetching (Đã chuẩn) ---
+  // --- API Fetching ---
   const fetchCategories = useCallback(async () => {
     setIsFetching(true);
     const query = new URLSearchParams();
@@ -98,8 +98,10 @@ export function CategoryManagement() {
     try {
       const result = await manualFetchApi(`/v1/categories?${query.toString()}`);
       if (result.status === 'SUCCESS' && result.data) {
-        setCategories(result.data.content);
-        setTotalCategoryPages(result.data.totalPages);
+        // CẬP NHẬT: Thêm fallback và setTotalCategories
+        setCategories(result.data.content || []);
+        setTotalCategoryPages(result.data.totalPages ?? 0);
+        setTotalCategories(result.data.totalElements ?? 0); // <-- Lấy tổng số bản ghi
       } else throw new Error(result.message || "Lỗi tải danh mục");
     } catch (err: any) { 
       toast.error(`Lỗi tải danh mục: ${err.message}`); 
@@ -112,12 +114,11 @@ export function CategoryManagement() {
   // --- Handlers ---
   const resetForm = () => {
     setShowForm(false); setEditingId(null); 
-    setApiError(null); // <-- SỬA
-    setFormErrors({}); // <-- SỬA
+    setApiError(null);
+    setFormErrors({});
     setFormData({ name: "", description: "", imageUrl: "", active: true });
   }
 
-  // === THÊM: Hàm Validate Mới ===
   const validateForm = (): CategoryFormErrors => {
     const newErrors: CategoryFormErrors = {};
     const name = formData.name.trim();
@@ -129,7 +130,6 @@ export function CategoryManagement() {
     return newErrors;
   }
 
-  // === SỬA: handleSubmit (Tích hợp Inline Validation) ===
   const handleSubmit = async () => {
     if (!canEdit) { 
       toast.error("Bạn không có quyền thực hiện hành động này.");
@@ -138,7 +138,7 @@ export function CategoryManagement() {
     
     setApiError(null);
     const newErrors = validateForm();
-    setFormErrors(newErrors); // <-- Sửa: Dùng setFormErrors
+    setFormErrors(newErrors);
 
     if (Object.keys(newErrors).length > 0) {
       toast.error("Vui lòng kiểm tra lại thông tin.");
@@ -164,18 +164,16 @@ export function CategoryManagement() {
         throw new Error(result.message || (isEditing ? "Cập nhật thất bại" : "Thêm thất bại"));
       }
     } catch (err: any) { 
-      // === SỬA: Logic bắt lỗi trùng lặp ===
       if (err.message && (err.message.toLowerCase().includes("đã tồn tại") || err.message.toLowerCase().includes("duplicate"))) { 
-        setFormErrors({ name: err.message }); // Gán lỗi vào ô Tên
+        setFormErrors({ name: err.message });
         toast.error(err.message);
       } else {
         toast.error(`Lỗi: ${err.message}`); 
-        setApiError(err.message); // Lỗi API chung
+        setApiError(err.message);
       }
     }
   };
 
-  // handleEdit (Đã cập nhật reset lỗi)
   const handleEdit = (category: CategoryResponse) => {
     if (!canEdit) { 
       toast.error("Bạn không có quyền sửa.");
@@ -184,7 +182,7 @@ export function CategoryManagement() {
     setFormData({ 
       name: category.name, 
       description: category.description || "", 
-      active: category.active,
+      active: category.active, 
       imageUrl: category.imageUrl || ""
     });
     setEditingId(category.id); 
@@ -193,17 +191,16 @@ export function CategoryManagement() {
     setFormErrors({});
   };
   
-  // === THAY THẾ: Logic Dialog (Thay cho handleDelete, handlePermanentDelete, handleReactivate) ===
   const closeDialog = () => {
     setDialogState({ isOpen: false, action: null, category: null });
   };
 
   const handleConfirmAction = async () => {
-    const { action, category } = dialogState; // <-- Sửa: Dùng 'category'
+    const { action, category } = dialogState;
     if (!category) return;
 
     try {
-      // 1. Logic cho "Ngừng hoạt động"
+      // 1. Ngừng hoạt động
       if (action === 'delete') {
         if (!canEdit) { toast.error("Bạn không có quyền."); return; }
         const result = await manualFetchApi(`/v1/categories/${category.id}`, { method: "DELETE" });
@@ -213,7 +210,7 @@ export function CategoryManagement() {
         } else throw new Error(result.message || "Xóa thất bại");
       }
       
-      // 2. Logic cho "Kích hoạt lại"
+      // 2. Kích hoạt lại
       else if (action === 'reactivate') {
         if (!canEdit) { toast.error("Bạn không có quyền."); return; }
         const url = `/v1/categories/${category.id}`;
@@ -230,10 +227,9 @@ export function CategoryManagement() {
         } else throw new Error(result.message || "Kích hoạt thất bại");
       }
       
-      // 3. Logic cho "Xóa vĩnh viễn"
+      // 3. Xóa vĩnh viễn
       else if (action === 'permanentDelete') {
         if (!isAdmin) { toast.error("Bạn không có quyền."); return; }
-        // Dùng endpoint của bạn: /permanent
         const result = await manualFetchApi(`/v1/categories/${category.id}/permanent`, { method: "DELETE" }); 
         if (result.status === 'SUCCESS') {
           toast.success("Đã xóa vĩnh viễn danh mục.");
@@ -272,7 +268,7 @@ export function CategoryManagement() {
       {/* Lỗi API chung */}
       {apiError && ( <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md border border-destructive/30 animate-shake">{apiError}</div> )}
       
-      {/* Form (Đã cập nhật Inline Validation) */}
+      {/* Form */}
       {showForm && canEdit && ( 
         <Card className="border-blue-500/50 shadow-md animate-fade-in">
           <CardHeader className="pb-4 border-b">
@@ -287,10 +283,9 @@ export function CategoryManagement() {
                 <ImageUpload 
                     value={formData.imageUrl || ""} 
                     onChange={(value) => setFormData({ ...formData, imageUrl: value })} 
-                    label="" // Tắt label bên trong ImageUpload
-                    className="w-24 h-24" // Giới hạn kích thước
+                    label="" 
+                    className="w-24 h-24" 
                 />
-                {/* {formErrors.imageUrl && <p className="text-xs text-destructive -mt-3 ml-1">{formErrors.imageUrl}</p>} */}
             </div>
             
             <div className="space-y-1.5">
@@ -323,10 +318,11 @@ export function CategoryManagement() {
         </Card>
       )}
 
-      {/* --- Bảng Danh sách (ĐÃ CẬP NHẬT) --- */}
+      {/* --- Bảng Danh sách --- */}
       <Card className="shadow-sm">
         <CardHeader>
-          <CardTitle className="text-xl font-semibold">Danh sách Danh mục</CardTitle>
+          {/* CẬP NHẬT: Hiển thị số lượng bản ghi */}
+          <CardTitle className="text-xl font-semibold">Danh sách Danh mục ({totalCategories})</CardTitle>
           <Tabs value={filterStatus} onValueChange={handleTabChange} className="mt-4">
             <TabsList className="grid w-full grid-cols-3 md:w-[400px]">
               <TabsTrigger value="ACTIVE">Đang hoạt động</TabsTrigger>
@@ -344,7 +340,6 @@ export function CategoryManagement() {
             categories.length === 0 ? <div className="text-center py-6 text-muted-foreground">{categorySearchTerm ? "Không tìm thấy." : `Không có danh mục nào (${filterStatus.toLowerCase()}).`}</div> :
             (
              <>
-               {/* SỬA: Bỏ max-h và border, chỉ giữ overflow-x */}
                <div className="overflow-x-auto">
                  <table className="w-full text-sm">
                    <thead className="bg-muted/30">
@@ -383,22 +378,18 @@ export function CategoryManagement() {
                          {canEdit && (
                            <td className="py-2 px-3">
                              <div className="flex gap-1.5 justify-center">
-                               {/* === SỬA: Nút Sửa -> Mở Dialog === */}
                                <Button variant="outline" size="icon" className="w-7 h-7" title="Sửa" onClick={() => handleEdit(cat)}><Edit2 size={14} /></Button>
                                
                                {cat.active ? (
-                                 // Nút Ngừng HĐ -> Mở Dialog
                                  <Button variant="outline" size="icon" className="w-7 h-7 text-destructive border-destructive hover:bg-destructive/10" title="Ngừng hoạt động" onClick={() => setDialogState({ isOpen: true, action: 'delete', category: cat })}>
                                    <Trash2 size={14} />
                                  </Button>
                                ) : (
-                                 // Nút Kích hoạt lại -> Mở Dialog
                                  <Button variant="outline" size="icon" className="w-7 h-7 text-green-600 border-green-600 hover:bg-green-100/50" title="Kích hoạt lại" onClick={() => setDialogState({ isOpen: true, action: 'reactivate', category: cat })}>
                                    <RotateCcw size={14} /> 
                                  </Button>
                                )}
 
-                               {/* === SỬA: Nút Xóa vĩnh viễn (Đổi Icon + Mở Dialog) === */}
                                {!cat.active && cat.productCount === 0 && isAdmin && ( 
                                  <Button 
                                    variant="outline" 
@@ -423,7 +414,7 @@ export function CategoryManagement() {
             )}
         </CardContent>
 
-        {/* === THÊM: Dialog Xác nhận === */}
+        {/* Dialog Xác nhận */}
         <AlertDialog open={dialogState.isOpen} onOpenChange={(open) => !open && closeDialog()}>
           <AlertDialogContent>
             <AlertDialogHeader>

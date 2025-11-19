@@ -12,7 +12,6 @@ import { Pagination } from "@/components/store/pagination";
 import { toast } from "sonner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { manualFetchApi } from "@/lib/api";
-// Import Alert Dialog
 import {
   AlertDialog,
   AlertDialogAction,
@@ -74,6 +73,9 @@ export function CouponManagement() {
   const [coupons, setCoupons] = useState<CouponResponse[]>([]);
   const [couponPage, setCouponPage] = useState(1);
   const [totalCouponPages, setTotalCouponPages] = useState(0);
+  // THÊM: State lưu tổng số bản ghi
+  const [totalCoupons, setTotalCoupons] = useState(0);
+
   const [couponSearchTerm, setCouponSearchTerm] = useState("");
   const [isFetchingCoupons, setIsFetchingCoupons] = useState(false);
   const [filterStatus, setFilterStatus] = useState("ACTIVE");
@@ -110,8 +112,10 @@ export function CouponManagement() {
     try {
       const result = await manualFetchApi(`/v1/coupons?${query.toString()}`);
       if (result.status === 'SUCCESS' && result.data) {
-        setCoupons(result.data.content);
-        setTotalCouponPages(result.data.totalPages);
+        // CẬP NHẬT: Thêm fallback và setTotalCoupons
+        setCoupons(result.data.content || []);
+        setTotalCouponPages(result.data.totalPages ?? 0);
+        setTotalCoupons(result.data.totalElements ?? 0); // <-- Lấy tổng số bản ghi
       } else throw new Error(result.message || "Lỗi tải coupon");
     } catch (err: any) {
       toast.error(`Lỗi tải Coupons: ${err.message}`);
@@ -130,7 +134,7 @@ export function CouponManagement() {
     setCouponFormData({ code: "", description: "", discountValue: "", maxDiscountAmount: null, minOrderAmount: null, usageLimit: null, startDate: "", endDate: "", active: true });
   }
 
-  // (HÀM ĐÃ SỬA) Hàm Validate (cho inline)
+  // Hàm Validate
   const validateForm = (): CouponFormErrors => {
     const newErrors: CouponFormErrors = {};
     const { code, discountValue, startDate, endDate, maxDiscountAmount, minOrderAmount, usageLimit, active } = couponFormData;
@@ -150,14 +154,12 @@ export function CouponManagement() {
     }
     if (!endDate) {
       newErrors.endDate = "Vui lòng chọn ngày kết thúc.";
-    } else if (startDate && startDate > endDate) { // <-- (SỬA LỖI 1) Đổi từ '>=' thành '>'
+    } else if (startDate && startDate > endDate) { 
       newErrors.endDate = "Ngày kết thúc phải sau hoặc trùng với ngày bắt đầu.";
     } else if (active && endDate < todayStr) {
-      // (SỬA LỖI 2) Đổi thông báo cho rõ ràng hơn
       newErrors.endDate = "Nếu muốn kích hoạt (active), ngày kết thúc không được ở trong quá khứ.";
     }
     
-    // (Validate khác giữ nguyên)
     const maxDiscNum = maxDiscountAmount ? Number(maxDiscountAmount) : null;
     if (maxDiscountAmount && (isNaN(maxDiscNum!) || maxDiscNum! <= 0)) {
       newErrors.maxDiscountAmount = "Giảm tối đa không hợp lệ (phải là số > 0).";
@@ -255,12 +257,10 @@ export function CouponManagement() {
 
   // --- Logic Dialog Xác nhận ---
   
-  // Hàm đóng dialog
   const closeDialog = () => {
     setDialogState({ isOpen: false, action: null, coupon: null });
   };
 
-  // (Hàm này đã đúng logic)
   const handleConfirmAction = async () => {
     const { action, coupon } = dialogState;
     if (!coupon || !canEdit) {
@@ -279,8 +279,6 @@ export function CouponManagement() {
       } 
       
       else if (action === 'reactivate') {
-        
-        // (Kiểm tra ngày hết hạn khi "Kích hoạt lại")
         const todayStr = new Date().toISOString().split('T')[0];
         
         if (coupon.endDate < todayStr) {
@@ -491,7 +489,8 @@ export function CouponManagement() {
       {/* --- Danh sách Coupons --- */}
       <Card className="shadow-sm">
         <CardHeader>
-          <CardTitle className="text-xl font-semibold">Danh sách Coupons</CardTitle>
+          {/* CẬP NHẬT: Hiển thị số lượng bản ghi */}
+          <CardTitle className="text-xl font-semibold">Danh sách Coupons ({totalCoupons})</CardTitle>
           <Tabs value={filterStatus} onValueChange={handleTabChange} className="mt-4">
             <TabsList className="grid w-full grid-cols-3 md:w-[400px]">
               <TabsTrigger value="ACTIVE">Đang hoạt động</TabsTrigger>

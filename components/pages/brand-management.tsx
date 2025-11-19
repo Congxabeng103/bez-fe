@@ -7,14 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Plus, Edit2, Trash2, Search, RotateCcw, XCircle } from "lucide-react"; // <-- THÊM XCircle
+import { Plus, Edit2, Trash2, Search, RotateCcw, XCircle } from "lucide-react";
 import { useAuthStore } from "@/lib/authStore";
 import { Pagination } from "@/components/store/pagination";
 import { toast } from "sonner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ImageUpload } from "@/components/store/image-upload";
 import { manualFetchApi } from "@/lib/api";
-// THÊM: Import Alert Dialog
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,7 +27,7 @@ import {
 
 const ITEMS_PER_PAGE = 5;
 
-// --- Interfaces (Đã chuẩn) ---
+// --- Interfaces ---
 interface BrandResponse { 
   id: number; 
   name: string; 
@@ -44,10 +43,8 @@ interface BrandFormData {
   active: boolean; 
 }
 
-// Kiểu cho state lỗi
 type BrandFormErrors = Partial<Record<keyof BrandFormData, string>>;
 
-// Kiểu cho state của Dialog
 interface DialogState {
   isOpen: boolean;
   action: 'delete' | 'reactivate' | 'permanentDelete' | null;
@@ -56,7 +53,7 @@ interface DialogState {
 
 // --- Component ---
 export function BrandManagement() { 
-  // --- Lấy user và quyền (Đã chuẩn) ---
+  // --- Lấy user và quyền ---
   const { user } = useAuthStore();
   const roles = user?.roles || [];
   const canEdit = roles.includes("ADMIN") || roles.includes("MANAGER");
@@ -66,6 +63,9 @@ export function BrandManagement() {
   const [brands, setBrands] = useState<BrandResponse[]>([]); 
   const [brandPage, setBrandPage] = useState(1); 
   const [totalBrandPages, setTotalBrandPages] = useState(0); 
+  // THÊM: State lưu tổng số bản ghi
+  const [totalBrands, setTotalBrands] = useState(0); 
+
   const [brandSearchTerm, setBrandSearchTerm] = useState(""); 
   const [isFetching, setIsFetching] = useState(false);
   const [filterStatus, setFilterStatus] = useState("ACTIVE"); 
@@ -75,18 +75,18 @@ export function BrandManagement() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [formData, setFormData] = useState<BrandFormData>({ name: "", description: "", imageUrl: "", active: true }); 
   
-  // === SỬA: State lỗi (Inline validation) ===
+  // State lỗi
   const [formErrors, setFormErrors] = useState<BrandFormErrors>({});
   const [apiError, setApiError] = useState<string | null>(null);
   
-  // === THÊM: State quản lý dialog xác nhận ===
+  // State dialog
   const [dialogState, setDialogState] = useState<DialogState>({
     isOpen: false,
     action: null,
     brand: null,
   });
 
-  // --- API Fetching (Đã chuẩn) ---
+  // --- API Fetching ---
   const fetchBrands = useCallback(async () => { 
     setIsFetching(true);
     const query = new URLSearchParams();
@@ -99,8 +99,10 @@ export function BrandManagement() {
     try {
       const result = await manualFetchApi(`/v1/brands?${query.toString()}`);
       if (result.status === 'SUCCESS' && result.data) {
-        setBrands(result.data.content); 
-        setTotalBrandPages(result.data.totalPages); 
+        // CẬP NHẬT: Thêm fallback an toàn và setTotalBrands
+        setBrands(result.data.content || []); 
+        setTotalBrandPages(result.data.totalPages ?? 0); 
+        setTotalBrands(result.data.totalElements ?? 0); // <-- Lấy tổng số bản ghi
       } else throw new Error(result.message || "Lỗi tải thương hiệu"); 
     } catch (err: any) { 
       toast.error(`Lỗi tải thương hiệu: ${err.message}`); 
@@ -113,26 +115,20 @@ export function BrandManagement() {
   // --- Handlers ---
   const resetForm = () => {
     setShowForm(false); setEditingId(null); 
-    setApiError(null); // <-- SỬA
-    setFormErrors({}); // <-- SỬA
+    setApiError(null);
+    setFormErrors({});
     setFormData({ name: "", description: "", imageUrl: "", active: true });
   }
 
-  // === THÊM: Hàm Validate Mới ===
   const validateForm = (): BrandFormErrors => {
     const newErrors: BrandFormErrors = {};
     const name = formData.name.trim();
     if (!name) { 
         newErrors.name = "Tên thương hiệu không được để trống."; 
     }
-    // (Thêm validate cho imageUrl nếu cần)
-    // if (!formData.imageUrl) {
-    //    newErrors.imageUrl = "Hình ảnh không được để trống.";
-    // }
     return newErrors;
   }
 
-  // === SỬA: handleSubmit (Tích hợp Inline Validation) ===
   const handleSubmit = async () => {
     if (!canEdit) { 
       toast.error("Bạn không có quyền thực hiện hành động này.");
@@ -164,23 +160,19 @@ export function BrandManagement() {
         resetForm(); 
         fetchBrands(); 
       } else {
-         // Trường hợp BE trả về 200 OK nhưng status: "ERROR"
-         // (Mặc dù manualFetchApi mới của chúng ta sẽ ném lỗi 409 trước)
         throw new Error(result.message || (isEditing ? "Cập nhật thất bại" : "Thêm thất bại"));
       }
     } catch (err: any) { 
-      // Bắt lỗi 409 (Trùng lặp) từ manualFetchApi
       if (err.message && (err.message.toLowerCase().includes("đã tồn tại") || err.message.toLowerCase().includes("duplicate"))) { 
-        setFormErrors({ name: err.message }); // Gán lỗi vào ô Tên
+        setFormErrors({ name: err.message });
         toast.error(err.message);
       } else {
         toast.error(`Lỗi: ${err.message}`); 
-        setApiError(err.message); // Lỗi API chung
+        setApiError(err.message);
       }
     }
   };
 
-  // handleEdit (Đã cập nhật reset lỗi)
   const handleEdit = (brand: BrandResponse) => {
     if (!canEdit) { 
       toast.error("Bạn không có quyền sửa.");
@@ -198,7 +190,6 @@ export function BrandManagement() {
     setFormErrors({});
   };
   
-  // === THAY THẾ: Logic Dialog (Thay cho handleDelete, handlePermanentDelete, handleReactivate) ===
   const closeDialog = () => {
     setDialogState({ isOpen: false, action: null, brand: null });
   };
@@ -208,7 +199,7 @@ export function BrandManagement() {
     if (!brand) return;
 
     try {
-      // 1. Logic cho "Ngừng hoạt động"
+      // 1. Ngừng hoạt động
       if (action === 'delete') {
         if (!canEdit) { toast.error("Bạn không có quyền."); return; }
         const result = await manualFetchApi(`/v1/brands/${brand.id}`, { method: "DELETE" });
@@ -218,7 +209,7 @@ export function BrandManagement() {
         } else throw new Error(result.message || "Xóa thất bại");
       }
       
-      // 2. Logic cho "Kích hoạt lại"
+      // 2. Kích hoạt lại
       else if (action === 'reactivate') {
         if (!canEdit) { toast.error("Bạn không có quyền."); return; }
         const url = `/v1/brands/${brand.id}`;
@@ -235,10 +226,9 @@ export function BrandManagement() {
         } else throw new Error(result.message || "Kích hoạt thất bại");
       }
       
-      // 3. Logic cho "Xóa vĩnh viễn"
+      // 3. Xóa vĩnh viễn
       else if (action === 'permanentDelete') {
         if (!isAdmin) { toast.error("Bạn không có quyền."); return; }
-        // Dùng endpoint của bạn: /permanent
         const result = await manualFetchApi(`/v1/brands/${brand.id}/permanent`, { method: "DELETE" }); 
         if (result.status === 'SUCCESS') {
           toast.success("Đã xóa vĩnh viễn thương hiệu.");
@@ -252,7 +242,6 @@ export function BrandManagement() {
     }
   };
   
-  // Đổi Tab (Đã chuẩn)
   const handleTabChange = (newStatus: string) => {
     setFilterStatus(newStatus);
     setBrandPage(1); 
@@ -278,7 +267,7 @@ export function BrandManagement() {
       {/* Lỗi API chung */}
       {apiError && ( <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md border border-destructive/30 animate-shake">{apiError}</div> )}
       
-      {/* Form (Đã cập nhật Inline Validation) */}
+      {/* Form */}
       {showForm && canEdit && ( 
         <Card className="border-blue-500/50 shadow-md animate-fade-in">
           <CardHeader className="pb-4 border-b">
@@ -287,19 +276,14 @@ export function BrandManagement() {
           <CardContent className="pt-6 space-y-5">
             
             <div className="space-y-1.5">
-        {/* Label phải nằm ngoài container tải ảnh để xuống dòng */}
-        <Label htmlFor="brandImageUrl" className="block text-sm font-medium text-muted-foreground">Hình ảnh thương hiệu (URL)</Label> 
-        
-        {/* Khung tải ảnh thực tế */}
-        <ImageUpload 
-            value={formData.imageUrl || ""} 
-            onChange={(value) => setFormData({ ...formData, imageUrl: value })} 
-            label="" // Tắt label bên trong ImageUpload
-            className="w-24 h-24" // Đảm bảo kích thước cố định
-        />
-        {/* {formErrors.imageUrl && ...} */}
-    </div>
-            {/* {formErrors.imageUrl && <p className="text-xs text-destructive -mt-3 ml-1">{formErrors.imageUrl}</p>} */}
+              <Label htmlFor="brandImageUrl" className="block text-sm font-medium text-muted-foreground">Hình ảnh thương hiệu (URL)</Label> 
+              <ImageUpload 
+                  value={formData.imageUrl || ""} 
+                  onChange={(value) => setFormData({ ...formData, imageUrl: value })} 
+                  label="" 
+                  className="w-24 h-24" 
+              />
+            </div>
             
             <div className="space-y-1.5">
               <Label htmlFor="brandName" className={`text-xs ${formErrors.name ? 'text-destructive' : 'text-muted-foreground'}`}>Tên thương hiệu *</Label>
@@ -331,10 +315,12 @@ export function BrandManagement() {
         </Card>
       )}
 
-      {/* --- Bảng Danh sách (ĐÃ CẬP NHẬT NÚT XÓA) --- */}
+      {/* --- Bảng Danh sách --- */}
       <Card className="shadow-sm">
         <CardHeader>
-          <CardTitle className="text-xl font-semibold">Danh sách Thương hiệu</CardTitle>
+          {/* CẬP NHẬT: Hiển thị tổng số bản ghi */}
+          <CardTitle className="text-xl font-semibold">Danh sách Thương hiệu ({totalBrands})</CardTitle>
+          
           <Tabs value={filterStatus} onValueChange={handleTabChange} className="mt-4">
             <TabsList className="grid w-full grid-cols-3 md:w-[400px]">
               <TabsTrigger value="ACTIVE">Đang hoạt động</TabsTrigger>
@@ -402,7 +388,6 @@ export function BrandManagement() {
                                  </Button>
                                )}
 
-                               {/* THAY ĐỔI: Dùng XCircle và logic chuẩn */}
                                {!brand.active && brand.productCount === 0 && isAdmin && ( 
                                  <Button 
                                    variant="outline" 
@@ -427,7 +412,7 @@ export function BrandManagement() {
             )}
         </CardContent>
 
-        {/* THÊM: Dialog Xác nhận */}
+        {/* Dialog Xác nhận */}
         <AlertDialog open={dialogState.isOpen} onOpenChange={(open) => !open && closeDialog()}>
           <AlertDialogContent>
             <AlertDialogHeader>

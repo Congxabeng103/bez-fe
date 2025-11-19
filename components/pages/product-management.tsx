@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Edit2, Trash2, Search, RotateCcw, AlertTriangle, X, GripVertical, XCircle } from "lucide-react"; // <-- THÊM XCircle
+import { Plus, Edit2, Trash2, Search, RotateCcw, AlertTriangle, X, GripVertical, XCircle } from "lucide-react"; 
 import { useAuthStore } from "@/lib/authStore";
 import { Pagination } from "@/components/store/pagination";
 import { ImageUpload } from "@/components/store/image-upload";
@@ -15,7 +15,6 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { manualFetchApi } from "@/lib/api";
-// THÊM: Import Alert Dialog
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,7 +29,7 @@ import {
 const ITEMS_PER_PAGE = 5;
 const CLEAR_SELECTION_VALUE = "__CLEAR__"; 
 
-// --- Interfaces (Đã chuẩn) ---
+// --- Interfaces ---
 interface ProductResponse {
   id: number; 
   name: string; 
@@ -85,10 +84,8 @@ interface ProductDetailResponse {
   attributes: ProductOptionResponse[];
 }
 
-// Kiểu cho state lỗi
 type ProductFormErrors = Partial<Record<keyof ProductFormData, string>>;
 
-// Kiểu cho state của Dialog
 interface DialogState {
   isOpen: boolean;
   action: 'delete' | 'reactivate' | 'permanentDelete' | null;
@@ -106,6 +103,9 @@ export function ProductManagement() {
   const [products, setProducts] = useState<ProductResponse[]>([]);
   const [totalPages, setTotalPages] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
+  // THÊM: State lưu tổng số bản ghi
+  const [totalProducts, setTotalProducts] = useState(0);
+
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("ACTIVE");
   const [showForm, setShowForm] = useState(false);
@@ -124,11 +124,11 @@ export function ProductManagement() {
   const [isLoadingSelectData, setIsLoadingSelectData] = useState(false);
   const [formWarning, setFormWarning] = useState<string | null>(null);
   
-  // === SỬA: State lỗi (Inline validation) ===
+  // State lỗi
   const [formErrors, setFormErrors] = useState<ProductFormErrors>({});
   const [apiError, setApiError] = useState<string | null>(null);
 
-  // === THÊM: State quản lý dialog xác nhận ===
+  // State dialog
   const [dialogState, setDialogState] = useState<DialogState>({
     isOpen: false,
     action: null,
@@ -146,12 +146,14 @@ export function ProductManagement() {
     if (searchTerm) query.append("search", searchTerm);
     
     try {
-      // (Giả sử public, không cần token)
       const result = await manualFetchApi(`/v1/products?${query.toString()}`, {
           headers: { 'Authorization': '' } 
       });
       if (result.status === 'SUCCESS' && result.data) {
-        setProducts(result.data.content); setTotalPages(result.data.totalPages);
+        // CẬP NHẬT: Thêm fallback và setTotalProducts
+        setProducts(result.data.content || []); 
+        setTotalPages(result.data.totalPages ?? 0);
+        setTotalProducts(result.data.totalElements ?? 0); // <-- Lấy tổng số bản ghi
       } else throw new Error(result.message || "Lỗi tải sản phẩm");
     } catch (err: any) { 
       setApiError(err.message); 
@@ -201,8 +203,8 @@ export function ProductManagement() {
   const resetForm = () => {
     setShowForm(false); setEditingId(null);
     setFormWarning(null); 
-    setApiError(null); // <-- SỬA
-    setFormErrors({}); // <-- SỬA
+    setApiError(null);
+    setFormErrors({});
     setFormData({ 
       name: "", description: "", imageUrl: "", 
       categoryId: "", brandId: "", promotionId: "", 
@@ -212,7 +214,7 @@ export function ProductManagement() {
     });
   }
 
-  // (Các hàm Option... giữ nguyên)
+  // (Các hàm Option...)
   const handleAddOption = () => {
     if (formData.options.length >= 3) { toast.warning("Chỉ nên tạo tối đa 3 thuộc tính."); return; }
     setFormData(prev => ({ ...prev, options: [ ...prev.options, { tempId: Math.random().toString(), name: "", values: [], newValueInput: "" } ] }));
@@ -236,9 +238,8 @@ export function ProductManagement() {
   const handleRemoveValueFromOption = (optionTempId: string, valueTempId: string) => {
     setFormData(prev => ({ ...prev, options: prev.options.map(opt => opt.tempId === optionTempId ? { ...opt, values: opt.values.filter(val => val.tempId !== valueTempId) } : opt ) }));
   };
-  // (Kết thúc hàm Option)
 
-  // === SỬA: handleSubmit (Tích hợp Inline Validation) ===
+  // handleSubmit
   const handleSubmit = async () => {
     if (!canEdit) { toast.error("Bạn không có quyền."); return; }
     
@@ -311,18 +312,16 @@ export function ProductManagement() {
         throw new Error(result.message || (isEditing ? "Cập nhật thất bại" : "Thêm thất bại"));
       }
     } catch (err: any) { 
-      // === SỬA: Gán lỗi vào đúng ô Name ===
       if (err.message && (err.message.toLowerCase().includes("đã tồn tại") || err.message.toLowerCase().includes("duplicate"))) { 
         setFormErrors({ name: err.message });
         toast.error(err.message);
       } else {
         toast.error(`Thao tác thất bại: ${err.message}`); 
-        setApiError(err.message); // Lỗi API chung
+        setApiError(err.message);
       }
     }
   };
 
-  // handleEdit (Đã cập nhật reset lỗi)
   const handleEdit = async (product: ProductResponse) => {
     if (!canEdit) { toast.error("Bạn không có quyền sửa."); return; }
     
@@ -381,7 +380,6 @@ export function ProductManagement() {
     }
   };
 
-  // === THAY THẾ: Logic Dialog (Thay cho handleDelete, handlePermanentDelete, handleReactivate) ===
   const closeDialog = () => {
     setDialogState({ isOpen: false, action: null, product: null });
   };
@@ -391,7 +389,7 @@ export function ProductManagement() {
     if (!product) return;
 
     try {
-      // 1. Logic cho "Ngừng hoạt động"
+      // 1. Ngừng hoạt động
       if (action === 'delete') {
         if (!canEdit) { toast.error("Bạn không có quyền."); return; }
         const result = await manualFetchApi(`/v1/products/${product.id}`, { method: "DELETE" });
@@ -401,11 +399,11 @@ export function ProductManagement() {
         } else throw new Error(result.message || "Xóa thất bại");
       }
       
-      // 2. Logic cho "Kích hoạt lại"
+      // 2. Kích hoạt lại
       else if (action === 'reactivate') {
         if (!canEdit) { toast.error("Bạn không có quyền."); return; }
         
-        // (Kiểm tra logic Category Active giống như hàm cũ của bạn)
+        // Kiểm tra logic Category Active
         let localCategories = categories;
         if (categories.length === 0) {
           const { cats } = await fetchSelectData();
@@ -432,7 +430,7 @@ export function ProductManagement() {
         } else throw new Error(result.message || "Kích hoạt thất bại");
       }
       
-      // 3. Logic cho "Xóa vĩnh viễn"
+      // 3. Xóa vĩnh viễn
       else if (action === 'permanentDelete') {
         if (!isAdmin) { toast.error("Bạn không có quyền."); return; }
         // Backend sẽ kiểm tra (variantCount > 0)
@@ -468,7 +466,7 @@ export function ProductManagement() {
         )}
       </div>
       
-      {/* Ẩn Form Thêm/Sửa nếu là STAFF */}
+      {/* Form Thêm/Sửa */}
       {showForm && canEdit && (
         <Card className="border-primary/50 shadow-md animate-fade-in">
           <CardHeader> <CardTitle className="text-lg font-semibold">{editingId ? "Chỉnh sửa sản phẩm" : "Thêm sản phẩm mới"}</CardTitle> </CardHeader>
@@ -484,25 +482,23 @@ export function ProductManagement() {
               </div>
             )}
             
-            {/* 1. Thông tin cơ bản (Đã cập nhật Inline Validation) */}
+            {/* 1. Thông tin cơ bản */}
             <Card>
               <CardHeader className="pb-4">
                 <CardTitle className="text-base font-semibold">1. Thông tin cơ bản</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-1.5">
-        {/* Label bên ngoài để không bị kéo dãn */}
-              <Label htmlFor="productImageUrl" className="block text-sm font-medium text-muted-foreground">
-                  Hình ảnh sản phẩm (URL)
-              </Label> 
-              <ImageUpload 
-                  value={formData.imageUrl || ""} 
-                  onChange={(value) => setFormData({ ...formData, imageUrl: value })} 
-                  label="" // Tắt label bên trong ImageUpload
-                  className="w-32 h-32" // Giới hạn kích thước (Giả sử bạn muốn 32x32)
-              />
-              {/* Lưu ý: Nếu bạn muốn ảnh hiển thị kích thước lớn hơn, hãy thay w-32 h-32 bằng w-40 h-40 hoặc tương tự */}
-          </div>
+                  <Label htmlFor="productImageUrl" className="block text-sm font-medium text-muted-foreground">
+                      Hình ảnh sản phẩm (URL)
+                  </Label> 
+                  <ImageUpload 
+                      value={formData.imageUrl || ""} 
+                      onChange={(value) => setFormData({ ...formData, imageUrl: value })} 
+                      label="" 
+                      className="w-32 h-32" 
+                  />
+                </div>
                 <div className="space-y-1.5"> 
                   <Label htmlFor="productName" className={`text-xs ${formErrors.name ? 'text-destructive' : 'text-muted-foreground'}`}>Tên sản phẩm *</Label>
                   <Input 
@@ -605,7 +601,7 @@ export function ProductManagement() {
               </CardContent>
             </Card>
 
-            {/* 2. Thuộc tính sản phẩm (Không đổi) */}
+            {/* 2. Thuộc tính sản phẩm */}
             <Card>
               <CardHeader className="pb-4">
                 <CardTitle className="text-base font-semibold">2. Thuộc tính sản phẩm</CardTitle>
@@ -706,10 +702,11 @@ export function ProductManagement() {
         </Card>
       )}
 
-      {/* --- DANH SÁCH SẢN PHẨM (ĐÃ CẬP NHẬT NÚT XÓA) --- */}
+      {/* --- DANH SÁCH SẢN PHẨM --- */}
       <Card className="shadow-sm">
         <CardHeader>
-          <CardTitle className="text-xl font-semibold">Danh sách sản phẩm</CardTitle>
+          {/* CẬP NHẬT: Hiển thị tổng số bản ghi */}
+          <CardTitle className="text-xl font-semibold">Danh sách sản phẩm ({totalProducts})</CardTitle>
             <Tabs value={filterStatus} onValueChange={handleTabChange} className="mt-4">
               <TabsList className="grid w-full grid-cols-3 md:w-[400px]">
                 <TabsTrigger value="ACTIVE">Đang hoạt động</TabsTrigger>
@@ -774,7 +771,6 @@ export function ProductManagement() {
                         {canEdit && (
                           <td className="py-2 px-3">
                             <div className="flex gap-1.5 justify-center">
-                              {/* === SỬA: Dùng Dialog === */}
                               <Button variant="outline" size="icon" className="w-7 h-7" title="Sửa" onClick={() => handleEdit(product)}><Edit2 size={14} /></Button>
                               
                               {product.active ? (
@@ -787,7 +783,6 @@ export function ProductManagement() {
                                 </Button>
                               )}
 
-                              {/* === SỬA: Dùng XCircle và logic chuẩn === */}
                               {!product.active && product.variantCount === 0 && isAdmin && (
                                 <Button 
                                   variant="outline" 
@@ -812,7 +807,7 @@ export function ProductManagement() {
           )}
         </CardContent>
 
-        {/* === THÊM: Dialog Xác nhận === */}
+        {/* Dialog Xác nhận */}
         <AlertDialog open={dialogState.isOpen} onOpenChange={(open) => !open && closeDialog()}>
           <AlertDialogContent>
             <AlertDialogHeader>

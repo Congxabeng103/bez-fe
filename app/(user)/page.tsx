@@ -312,31 +312,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ======================================= */}
-      {/* 4. HIỂN THỊ NÚT ADMIN (FLOATING)        */}
-      {/* ======================================= */}
-      {isAdmin && (
-        <div className="fixed bottom-6 right-6 z-50 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                {/* Thay đổi đường dẫn href dưới đây đến trang Admin thực tế của bạn (vd: /admin/dashboard) */}
-                <Link href="/admin"> 
-                  <Button 
-                    size="icon" 
-                    className="h-14 w-14 rounded-full shadow-xl bg-red-600 hover:bg-red-700 text-white border-2 border-white"
-                  >
-                    <LayoutDashboard className="h-6 w-6" />
-                  </Button>
-                </Link>
-              </TooltipTrigger>
-              <TooltipContent side="left">
-                <p>Quản trị viên</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </div>
-      )}
+      
 
     </div>
   )
