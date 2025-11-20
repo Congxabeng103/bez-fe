@@ -10,7 +10,7 @@ import {
   DialogFooter 
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Loader2, Trash2, X } from "lucide-react";
+import { Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { manualFetchApi } from "@/lib/api";
 import { ImageUpload } from "./image-upload";
@@ -35,7 +35,7 @@ interface AlbumManagerDialogProps {
   onClose: (didChange: boolean) => void;
   productId: number;
   productName: string;
-  canEdit: boolean; // <-- SỬA: Nhận quyền 'canEdit'
+  canEdit: boolean;
 }
 
 interface DeleteDialogState {
@@ -43,7 +43,7 @@ interface DeleteDialogState {
   image: ProductImage | null;
 }
 
-export function AlbumManagerDialog({ isOpen, onClose, productId, productName, canEdit }: AlbumManagerDialogProps) { // <-- SỬA
+export function AlbumManagerDialog({ isOpen, onClose, productId, productName, canEdit }: AlbumManagerDialogProps) {
   const [images, setImages] = useState<ProductImage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -51,7 +51,6 @@ export function AlbumManagerDialog({ isOpen, onClose, productId, productName, ca
 
   const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState>({ isOpen: false, image: null });
 
-  // (Hàm fetchImages không đổi)
   const fetchImages = useCallback(async () => {
     if (!productId) return;
     setIsLoading(true);
@@ -76,9 +75,8 @@ export function AlbumManagerDialog({ isOpen, onClose, productId, productName, ca
     }
   }, [isOpen, fetchImages]);
 
-  // (Hàm handleUploadComplete không đổi)
   const handleUploadComplete = async (newImageUrl: string) => {
-    if (!canEdit) return; // (Bảo vệ lần nữa)
+    if (!canEdit) return;
     if (!newImageUrl || newImageUrl === "loading") {
         if (newImageUrl === "loading") {
             setIsUploading(true);
@@ -108,10 +106,9 @@ export function AlbumManagerDialog({ isOpen, onClose, productId, productName, ca
     }
   };
   
-  // (Hàm handleDeleteConfirm không đổi)
   const handleDeleteConfirm = async () => {
     const image = deleteDialog.image;
-    if (!image || !canEdit) return; // (Bảo vệ lần nữa)
+    if (!image || !canEdit) return;
 
     try {
       const result = await manualFetchApi(`/v1/products/images/${image.id}`, {
@@ -134,25 +131,17 @@ export function AlbumManagerDialog({ isOpen, onClose, productId, productName, ca
   return (
     <>
       <Dialog open={isOpen} onOpenChange={() => onClose(hasChanged)}>
-        {/* === SỬA: Thay đổi layout dựa trên 'canEdit' === */}
         <DialogContent 
           className={`h-[90vh] flex flex-col ${canEdit ? 'max-w-4xl' : 'max-w-2xl'}`}
         >
-          <DialogHeader className="flex-row items-center justify-between pr-2">
-            <div className="space-y-1">
-              <DialogTitle>Album ảnh: {productName}</DialogTitle>
-              <DialogDescription>
-                {canEdit ? "Thêm/Xóa ảnh phụ." : "Xem ảnh phụ của sản phẩm."}
-              </DialogDescription>
-            </div>
-             <Button
-                type="button" variant="ghost" size="icon"
-                className="w-8 h-8 rounded-full"
-                onClick={() => onClose(hasChanged)}
-             > <X size={18} /> </Button>
+          {/* ĐÃ SỬA: Bỏ nút X thủ công, chỉ giữ lại Title và Description */}
+          <DialogHeader className="space-y-1 pr-6">
+            <DialogTitle>Album ảnh: {productName}</DialogTitle>
+            <DialogDescription>
+              {canEdit ? "Thêm/Xóa ảnh phụ cho sản phẩm này." : "Xem danh sách ảnh phụ của sản phẩm."}
+            </DialogDescription>
           </DialogHeader>
           
-          {/* === SỬA: Chia layout === */}
           <div 
             className={`grid grid-cols-1 flex-1 overflow-hidden pt-4 ${canEdit ? 'md:grid-cols-3 md:gap-6' : ''}`}
           >
@@ -163,11 +152,11 @@ export function AlbumManagerDialog({ isOpen, onClose, productId, productName, ca
                 <ImageUpload
                   value={isUploading ? "loading" : ""} 
                   onChange={handleUploadComplete}
-                  label="Tải ảnh lên (tự động đăng ký)"
+                  label="Tải ảnh lên (tự động lưu)"
                 />
                 {isUploading && (
                   <p className="text-sm text-muted-foreground animate-pulse">
-                    Đang đăng ký ảnh...
+                    Đang xử lý ảnh...
                   </p>
                 )}
               </div>
@@ -227,13 +216,13 @@ export function AlbumManagerDialog({ isOpen, onClose, productId, productName, ca
         </DialogContent>
       </Dialog>
       
-      {/* Dialog Xác nhận Xóa ảnh (Chỉ có thể mở nếu 'canEdit' là true) */}
+      {/* Dialog Xác nhận Xóa ảnh */}
       <AlertDialog open={deleteDialog.isOpen} onOpenChange={(open) => !open && setDeleteDialog({ isOpen: false, image: null })}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Xác nhận XÓA ẢNH?</AlertDialogTitle>
             <AlertDialogDescription>
-              Bạn có chắc muốn xóa ảnh này? Ảnh sẽ bị xóa khỏi album (nhưng vẫn tồn tại trên Cloudinary).
+              Bạn có chắc muốn xóa ảnh này khỏi album? Hành động này không thể hoàn tác.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

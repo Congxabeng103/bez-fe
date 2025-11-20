@@ -22,6 +22,8 @@ export interface AdminOrderDTO {
   paymentStatus: PaymentStatus;
   paymentMethod: PaymentMethod; // <-- Thêm dòng này
   stockReturned: boolean;  // <-- THÊM DÒNG NÀY
+  email: string;
+  phone?: string;
 }
 
 /**

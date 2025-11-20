@@ -78,17 +78,16 @@ Label.displayName = "Label";
 export default function CheckoutPage() {
   const router = useRouter();
   const { cart, getTotalPrice, clearCart, isLoaded: isCartLoaded } = useCart();
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, user } = useAuthStore(); // Lấy user từ store
 
   // --- States ---
   const [isProcessing, setIsProcessing] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'COD' | 'VNPAY'>('COD');
   const [isReady, setIsReady] = useState(false);
 
-  // Form Data
+  // Form Data (Đã xóa email khỏi state form)
   const [formData, setFormData] = useState({
     fullName: "",
-    email: "",
     phone: "",
     note: "",
   });
@@ -139,7 +138,7 @@ export default function CheckoutPage() {
       setFormData((prev) => ({
         ...prev,
         fullName: currentUser.name || "",
-        email: currentUser.email || "",
+        // Email không cần set vào state form nữa
         phone: currentUser.phone || "",
       }));
       setStreetAddress(currentUser.streetAddress || "");
@@ -216,31 +215,24 @@ export default function CheckoutPage() {
   }, [selectedDistrict]);
 
 
-  // --- Logic 3: VALIDATION (ĐÃ CẬP NHẬT) ---
+  // --- Logic 3: VALIDATION (Đã đồng bộ SĐT với Profile) ---
   const validateForm = () => {
     const newErrors: { [key: string]: string } = {};
-    const phoneRegex = /(84|0[3|5|7|8|9])+([0-9]{8})\b/;
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     
-    // Regex cho Tên: Chỉ chữ cái (Unicode tiếng Việt) và khoảng trắng
+    // Regex chuẩn: Bắt đầu bằng 84 hoặc 0 + (3,5,7,8,9) + 8 số
+    const phoneRegex = /^(84|0[3|5|7|8|9])([0-9]{8})$/;
     const nameRegex = /^[\p{L}\s]+$/u;
 
-    // Validate Họ và tên
     if (!formData.fullName.trim()) {
         newErrors.fullName = "Vui lòng nhập họ và tên";
     } else if (!nameRegex.test(formData.fullName.trim())) {
         newErrors.fullName = "Họ tên không được chứa số hoặc ký tự đặc biệt";
     }
     
-    // Validate Phone
     if (!formData.phone.trim()) {
       newErrors.phone = "Vui lòng nhập số điện thoại";
     } else if (!phoneRegex.test(formData.phone)) {
       newErrors.phone = "Số điện thoại không đúng định dạng (10 số)";
-    }
-
-    if (formData.email && !emailRegex.test(formData.email)) {
-      newErrors.email = "Email không hợp lệ";
     }
 
     if (!selectedProvince) newErrors.province = "Vui lòng chọn Tỉnh/Thành phố";
@@ -252,18 +244,14 @@ export default function CheckoutPage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  // --- Logic 4: EVENT HANDLERS (ĐÃ CẬP NHẬT) ---
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     
-    // Chặn nhập chữ ở ô Phone
     if (name === "phone") {
         if (!/^\d*$/.test(value)) return;
     }
 
     setFormData((prev) => ({ ...prev, [name]: value }));
-    
-    // Xóa lỗi khi user bắt đầu nhập
     if (errors[name]) setErrors((prev) => ({ ...prev, [name]: "" }));
   };
 
@@ -299,11 +287,14 @@ export default function CheckoutPage() {
 
     setIsProcessing(true);
     const fullAddress = `${streetAddress}, ${selectedWard!.name}, ${selectedDistrict!.name}, ${selectedProvince!.name}`;
+    
+    // Lấy email trực tiếp từ Auth Store
+    const currentUser = useAuthStore.getState().user;
 
     const orderRequestDTO = {
-      customerName: formData.fullName,
-      phone: formData.phone,
-      email: formData.email,
+      customerName: formData.fullName, // Tên người nhận (Khách có thể sửa)
+      phone: formData.phone,           // SĐT người nhận (Khách có thể sửa)
+      email: currentUser?.email,       // Email tài khoản (Cố định)
       address: fullAddress,
       note: formData.note,
       paymentMethod: paymentMethod,
@@ -364,45 +355,31 @@ export default function CheckoutPage() {
                   
                   {/* 1. Họ và tên */}
                   <div className="space-y-2">
-                    <Label htmlFor="fullName" className={errors.fullName ? "text-red-500" : ""}>Họ và tên *</Label>
+                    <Label htmlFor="fullName" className={errors.fullName ? "text-red-500" : ""}>Họ và tên người nhận *</Label>
                     <Input
                       id="fullName"
                       name="fullName"
                       value={formData.fullName}
                       onChange={handleInputChange}
                       className={errors.fullName ? "border-red-500 focus-visible:ring-red-500" : ""}
+                      placeholder="Nhập tên người nhận hàng"
                     />
                     {errors.fullName && <span className="text-xs text-red-500 font-medium">{errors.fullName}</span>}
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    {/* 2. Email */}
-                    <div className="space-y-2">
-                      <Label htmlFor="email" className={errors.email ? "text-red-500" : ""}>Email (Không bắt buộc)</Label>
-                      <Input
-                        id="email"
-                        name="email"
-                        type="email"
-                        value={formData.email}
-                        onChange={handleInputChange}
-                        className={errors.email ? "border-red-500 focus-visible:ring-red-500" : ""}
-                      />
-                      {errors.email && <span className="text-xs text-red-500 font-medium">{errors.email}</span>}
-                    </div>
-
-                    {/* 3. Số điện thoại */}
-                    <div className="space-y-2">
-                      <Label htmlFor="phone" className={errors.phone ? "text-red-500" : ""}>Số điện thoại *</Label>
-                      <Input
-                        id="phone"
-                        name="phone"
-                        type="tel"
-                        value={formData.phone}
-                        onChange={handleInputChange}
-                        className={errors.phone ? "border-red-500 focus-visible:ring-red-500" : ""}
-                      />
-                      {errors.phone && <span className="text-xs text-red-500 font-medium">{errors.phone}</span>}
-                    </div>
+                  {/* 2. Số điện thoại (Đã xóa ô Email, Phone lên dòng riêng) */}
+                  <div className="space-y-2">
+                    <Label htmlFor="phone" className={errors.phone ? "text-red-500" : ""}>Số điện thoại *</Label>
+                    <Input
+                      id="phone"
+                      name="phone"
+                      type="tel"
+                      value={formData.phone}
+                      onChange={handleInputChange}
+                      className={errors.phone ? "border-red-500 focus-visible:ring-red-500" : ""}
+                      placeholder="Nhập số điện thoại người nhận"
+                    />
+                    {errors.phone && <span className="text-xs text-red-500 font-medium">{errors.phone}</span>}
                   </div>
 
                   {/* KHU VỰC ĐỊA CHỈ */}

@@ -99,11 +99,13 @@ export function CampaignSlider({ promotions }: CampaignSliderProps) {
                     </span>
                   </div>
 
-                  <Link href="/products"> 
+                  {/* --- SỬA ĐOẠN NÀY: Thêm tham số promotionId vào URL --- */}
+                  <Link href={`/products?promotionId=${promotion.id}`}> 
                     <Button variant="outline" className="bg-white text-orange-700 hover:bg-white/90">
                       Xem ngay
                     </Button>
                   </Link>
+                  {/* ----------------------------------------------------- */}
                 </div>
               </div>
             </CarouselItem>

@@ -1,35 +1,32 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation"; // Thêm useRouter, useSearchParams
+import Link from "next/link"; // Thêm Link
 import { ProductCard } from "@/components/store/product-card";
 import { Pagination } from "@/components/store/pagination";
-import { Search, Loader2 } from "lucide-react";
+import { Search, Loader2, PartyPopper, Tag } from "lucide-react"; // Thêm icon
 import { translations as t } from "@/lib/translations";
 import { useAuthStore } from "@/lib/authStore";
 import { toast } from "sonner";
 import { ProductResponseDTO } from "@/types/productDTO";
 
-// --- BỔ SUNG: Hook useDebounce ---
-// Bạn có thể đặt hook này ở đây, hoặc tách ra file riêng (ví dụ: hooks/useDebounce.ts)
+// --- Hook useDebounce ---
 function useDebounce<T>(value: T, delay: number): T {
   const [debouncedValue, setDebouncedValue] = useState<T>(value);
 
   useEffect(() => {
-    // Đặt một timer để cập nhật giá trị
     const handler = setTimeout(() => {
       setDebouncedValue(value);
     }, delay);
 
-    // Hủy timer nếu value thay đổi (ví dụ: người dùng gõ tiếp)
     return () => {
       clearTimeout(handler);
     };
-  }, [value, delay]); // Chỉ chạy lại nếu value hoặc delay thay đổi
+  }, [value, delay]);
 
   return debouncedValue;
 }
-// --- KẾT THÚC BỔ SUNG ---
-
 
 // Interface cho Category
 interface Category {
@@ -42,7 +39,17 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL;
 const DEFAULT_MAX_PRICE = 100000;
 const PRICE_STEP = 1000;
 
-export default function ProductsPage() {
+// --- TÁCH COMPONENT CON ĐỂ BỌC SUSPENSE ---
+function ProductsContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  // Lấy giá trị từ URL
+  const urlCategory = searchParams.get("category");
+  const urlBrand = searchParams.get("brand");
+  const urlPromotionId = searchParams.get("promotionId");
+  const urlSearch = searchParams.get("search"); // Lấy search từ URL nếu có
+
   const { token } = useAuthStore.getState();
 
   const [products, setProducts] = useState<ProductResponseDTO[]>([]);
@@ -52,45 +59,59 @@ export default function ProductsPage() {
   const [isCategoriesLoading, setIsCategoriesLoading] = useState(true);
   const [isPriceLoading, setIsPriceLoading] = useState(true);
 
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  // Khởi tạo state từ URL hoặc mặc định
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(urlCategory);
   const [sortBy, setSortBy] = useState("createdAt,desc");
-
   const [apiMaxPrice, setApiMaxPrice] = useState(DEFAULT_MAX_PRICE);
   const [priceRange, setPriceRange] = useState([0, DEFAULT_MAX_PRICE]);
 
-  // --- SỬA: Tách state cho Search và Debounce ---
-  const [searchQuery, setSearchQuery] = useState(""); // State này dùng để gọi API
-  const [searchTerm, setSearchTerm] = useState(""); // State này dùng cho ô input
-  const debouncedSearchTerm = useDebounce(searchTerm, 500); // Chờ 500ms
-  // --- KẾT THÚC SỬA ---
+  const [searchQuery, setSearchQuery] = useState(urlSearch || ""); 
+  const [searchTerm, setSearchTerm] = useState(urlSearch || ""); 
+  const debouncedSearchTerm = useDebounce(searchTerm, 500);
 
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
 
-  // fetchProducts giữ nguyên, nó đã dùng `searchQuery`
+  // --- 1. SỬA: Hàm fetchProducts nhận diện Brand và Promotion ---
   const fetchProducts = useCallback(async () => {
     setIsProductsLoading(true);
     const url = new URL(`${API_URL}/v1/products`);
+    
+    // Các params cơ bản
     url.searchParams.append("page", (currentPage - 1).toString());
     url.searchParams.append("size", ITEMS_PER_PAGE.toString());
     url.searchParams.append("sort", sortBy);
     url.searchParams.append("status", "ACTIVE");
     url.searchParams.append("hasVariants", "true");
 
-    // `searchQuery` đã được cập nhật bởi debounce
+    // Search
     if (searchQuery) {
       url.searchParams.append("search", searchQuery);
     }
 
-    if (selectedCategory) {
-      url.searchParams.append("categoryName", selectedCategory);
+    // Category (Ưu tiên state local -> URL)
+    const activeCategory = selectedCategory || urlCategory;
+    if (activeCategory) {
+      url.searchParams.append("categoryName", activeCategory);
     }
+
+    // Price
     if (priceRange[0] > 0) {
       url.searchParams.append("minPrice", priceRange[0].toString());
     }
     if (priceRange[1] < apiMaxPrice) {
       url.searchParams.append("maxPrice", priceRange[1].toString());
     }
+
+    // === LOGIC MỚI: BRAND & PROMOTION ===
+    // Lấy trực tiếp từ URL params (vì chúng ta không làm state riêng cho nó ở sidebar)
+    if (urlBrand) {
+      url.searchParams.append("brandName", urlBrand);
+    }
+    if (urlPromotionId) {
+      url.searchParams.append("promotionId", urlPromotionId);
+    }
+    // ====================================
 
     try {
       const response = await fetch(url.toString());
@@ -112,7 +133,7 @@ export default function ProductsPage() {
     } finally {
       setIsProductsLoading(false);
     }
-  }, [currentPage, sortBy, searchQuery, selectedCategory, priceRange, apiMaxPrice]);
+  }, [currentPage, sortBy, searchQuery, selectedCategory, priceRange, apiMaxPrice, urlCategory, urlBrand, urlPromotionId]);
 
   // fetchCategories giữ nguyên
   const fetchCategories = useCallback(async () => {
@@ -135,27 +156,23 @@ export default function ProductsPage() {
   }, []);
 
 
-  // --- BỔ SUNG: useEffect cho Debounce Search ---
+  // Effect cập nhật search query
   useEffect(() => {
-    // Cập nhật `searchQuery` (sẽ trigger fetch) khi người dùng ngừng gõ
     setSearchQuery(debouncedSearchTerm);
-    setCurrentPage(1); // Reset về trang 1 khi tìm kiếm
-  }, [debouncedSearchTerm]);
-  // --- KẾT THÚC BỔ SUNG ---
-
-
-  // useEffect này chạy fetchProducts khi filter thay đổi
-  useEffect(() => {
-    if (isPriceLoading) {
-      return;
+    if (debouncedSearchTerm !== urlSearch) {
+       setCurrentPage(1);
     }
+  }, [debouncedSearchTerm]);
+
+  // Effect chính để fetch sản phẩm
+  useEffect(() => {
+    if (isPriceLoading) return;
     fetchProducts();
   }, [fetchProducts, isPriceLoading]);
 
-  // useEffect này chạy 1 lần khi mount để load categories và max price
+  // Effect lấy max price & categories
   useEffect(() => {
     fetchCategories();
-
     const fetchMaxPrice = async () => {
       setIsPriceLoading(true);
       try {
@@ -174,23 +191,28 @@ export default function ProductsPage() {
           setPriceRange([0, DEFAULT_MAX_PRICE]);
         }
       } catch (err: any) {
-        toast.error(err.message || "Lỗi tải giá tối đa, dùng giá trị mặc định.");
+        // toast.error(err.message); // Ẩn lỗi này cho đỡ phiền
         setApiMaxPrice(DEFAULT_MAX_PRICE);
         setPriceRange([0, DEFAULT_MAX_PRICE]);
       } finally {
         setIsPriceLoading(false);
       }
     };
-
     fetchMaxPrice();
-
-  }, [fetchCategories]); // Chỉ chạy 1 lần
-
+  }, [fetchCategories]);
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
+
+  // Hàm reset filter (Về trang gốc)
+  const clearFilters = () => {
+    router.push('/products');
+    setSelectedCategory(null);
+    setSearchTerm("");
+    setCurrentPage(1);
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -202,14 +224,12 @@ export default function ProductsPage() {
           <div className="lg:col-span-1">
             <div className="bg-card rounded-lg p-6 border border-border sticky top-20">
 
-              {/* --- SỬA: Thêm UI cho ô tìm kiếm --- */}
               <div className="mb-6">
                 <h3 className="font-semibold mb-4">Tìm kiếm</h3>
                 <div className="relative">
                   <input
                     type="text"
                     placeholder="Nhập tên sản phẩm..."
-                    // Dùng state của input
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="w-full px-3 py-2 border border-border rounded-lg bg-background pl-10"
@@ -217,9 +237,7 @@ export default function ProductsPage() {
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 </div>
               </div>
-              {/* --- KẾT THÚC SỬA --- */}
 
-              {/* Category Filter */}
               <div className="mb-6">
                 <h3 className="font-semibold mb-4">Danh mục</h3>
                 {isCategoriesLoading ? (
@@ -229,7 +247,11 @@ export default function ProductsPage() {
                 ) : (
                   <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
                     <button
-                      onClick={() => { setSelectedCategory(null); setCurrentPage(1); }}
+                      onClick={() => { 
+                        setSelectedCategory(null); 
+                        setCurrentPage(1); 
+                        // Nếu đang có brand/promotion trên URL, việc set null này chỉ bỏ chọn category
+                      }}
                       className={`block w-full text-left px-3 py-2 rounded transition ${
                         selectedCategory === null ? "bg-primary text-primary-foreground" : "hover:bg-muted"
                       }`}
@@ -251,7 +273,6 @@ export default function ProductsPage() {
                 )}
               </div>
 
-              {/* Price Filter */}
               <div className="mb-6">
                 <h3 className="font-semibold mb-4">Khoảng giá</h3>
                 <div className="space-y-2">
@@ -275,7 +296,6 @@ export default function ProductsPage() {
                 </div>
               </div>
 
-              {/* Sort Filter (Giữ nguyên) */}
               <div>
                 <h3 className="font-semibold mb-4">Sắp xếp</h3>
                 <select
@@ -296,14 +316,43 @@ export default function ProductsPage() {
 
           {/* Products Grid */}
           <div className="lg:col-span-3">
-            <div className="mb-6 flex justify-between items-center">
-              <p className="text-muted-foreground">
-                {/* --- SỬA: Dùng `products.length` --- */}
-                {!isProductsLoading && `Hiển thị ${products.length} kết quả`}
-              </p>
-            </div>
+            {/* --- 2. SỬA: THÔNG BÁO FILTER ẨN --- */}
+            <div className="mb-6 space-y-3">
+              
+              {/* Thông báo Khuyến mãi */}
+              {urlPromotionId && (
+                <div className="bg-orange-100 text-orange-800 px-4 py-3 rounded-md flex justify-between items-center border border-orange-200 shadow-sm">
+                  <span className="flex items-center gap-2 font-medium">
+                    <PartyPopper className="h-5 w-5 text-orange-600" /> 
+                    Đang xem sản phẩm trong chương trình khuyến mãi
+                  </span>
+                  <button onClick={clearFilters} className="text-sm font-semibold hover:underline text-orange-900">
+                    Xóa
+                  </button>
+                </div>
+              )}
 
-            {/* --- SỬA: Dùng `products.length` --- */}
+              {/* Thông báo Thương hiệu */}
+              {urlBrand && (
+                <div className="bg-blue-100 text-blue-800 px-4 py-3 rounded-md flex justify-between items-center border border-blue-200 shadow-sm">
+                  <span className="flex items-center gap-2 font-medium">
+                    <Tag className="h-5 w-5 text-blue-600" />
+                    Thương hiệu: {urlBrand}
+                  </span>
+                  <button onClick={clearFilters} className="text-sm font-semibold hover:underline text-blue-900">
+                    Xóa
+                  </button>
+                </div>
+              )}
+
+              <div className="flex justify-between items-center">
+                <p className="text-muted-foreground">
+                  {!isProductsLoading && `Hiển thị ${products.length} kết quả`}
+                </p>
+              </div>
+            </div>
+            {/* ------------------------------------ */}
+
             {isProductsLoading ? (
               <div className="flex justify-center items-center h-64">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -311,7 +360,6 @@ export default function ProductsPage() {
             ) : products.length > 0 ? (
               <>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {/* --- SỬA: Dùng `products.map` --- */}
                   {products.map((product) => (
                     <ProductCard key={product.id} product={product} />
                   ))}
@@ -322,13 +370,31 @@ export default function ProductsPage() {
                 )}
               </>
             ) : (
-              <div className="text-center py-12">
+              <div className="text-center py-12 bg-muted/30 rounded-lg border border-dashed">
                 <p className="text-muted-foreground text-lg">Không tìm thấy sản phẩm phù hợp.</p>
+                {(urlBrand || urlPromotionId) && (
+                  <button onClick={clearFilters} className="mt-4 text-primary hover:underline">
+                    Quay lại xem tất cả sản phẩm
+                  </button>
+                )}
               </div>
             )}
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+// --- COMPONENT CHÍNH (WRAPPER) ---
+export default function ProductsPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    }>
+      <ProductsContent />
+    </Suspense>
   );
 }

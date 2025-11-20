@@ -1,15 +1,16 @@
 "use client";
 import { ScrollText, User, Clock, Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils"; // Nhớ import cn để xử lý class cho gọn
 
-// DTO này phải khớp với DTO Backend (OrderAuditLogResponseDTO)
 type OrderAuditLogResponseDTO = {
   id: number;
-  staffName: string; // Tên nhân viên
+  staffName: string;
+  staffEmail?: string; // Email có thể null
   description: string;
   fieldChanged?: string;
   oldValue?: string;
   newValue?: string;
-  createdAt: string; // ISO String
+  createdAt: string;
 };
 
 type Props = {
@@ -17,7 +18,6 @@ type Props = {
   isLoading: boolean;
 };
 
-// Helper định dạng ngày
 const formatDateTime = (isoString: string) => {
   return new Date(isoString).toLocaleString('vi-VN', {
     dateStyle: 'short',
@@ -39,7 +39,6 @@ export function OrderHistoryTimeline({ logs, isLoading }: Props) {
     return <p className="text-sm text-muted-foreground italic text-center py-4">Chưa có lịch sử thao tác cho đơn này.</p>;
   }
 
-  // Hiển thị danh sách log
   return (
     <div className="space-y-6">
       {logs.map((log) => (
@@ -51,6 +50,8 @@ export function OrderHistoryTimeline({ logs, isLoading }: Props) {
           </div>
           <div className="flex-1">
             <p className="text-sm font-medium text-foreground">{log.description}</p>
+            
+            {/* Hiển thị thay đổi giá trị (nếu có) */}
             {log.fieldChanged && (
               <div className="text-xs text-muted-foreground mt-0.5">
                 <span>Trường thay đổi: </span>
@@ -59,10 +60,26 @@ export function OrderHistoryTimeline({ logs, isLoading }: Props) {
                 <span className="font-semibold text-green-600">{log.newValue}</span>
               </div>
             )}
+
             <div className="flex items-center gap-4 text-xs text-muted-foreground mt-1.5">
               <div className="flex items-center gap-1">
                 <User size={12} />
-                <span>{log.staffName}</span>
+                
+                {/* --- SỬA Ở ĐÂY --- */}
+                <span 
+                  // Logic: Nếu có email (Admin/Staff) thì gán title, không thì undefined (ko hiện gì)
+                  title={log.staffEmail || undefined} 
+                  
+                  className={cn(
+                    "font-medium", // Style mặc định
+                    // Nếu có email: Thêm hover đổi màu nhẹ để biết là tương tác được, con trỏ mặc định
+                    log.staffEmail ? "hover:text-blue-600 cursor-default transition-colors" : ""
+                  )}
+                >
+                  {log.staffName}
+                </span>
+                {/* ---------------- */}
+
               </div>
               <div className="flex items-center gap-1">
                 <Clock size={12} />

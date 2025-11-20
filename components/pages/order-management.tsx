@@ -6,9 +6,9 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Search, Eye, Download, Ban, X, Check, Truck, Undo, Package,
-  MapPin, PhoneCall, ScrollText, Loader2, AlertCircle, PackageCheck,
-  CreditCard, Landmark, History
+  Search, Eye, Ban, Check, Truck, Undo, Package,X,
+  MapPin, PhoneCall, ScrollText, Loader2, PackageCheck,
+  CreditCard, Landmark, History, Mail, User
 } from "lucide-react";
 import { Pagination } from "@/components/store/pagination";
 import { toast } from "sonner";
@@ -30,20 +30,17 @@ import {
 
 // Import Timeline
 import { OrderHistoryTimeline } from "@/components/admin/order-history-timeline";
-
-// Import helper 'cn'
 import { cn } from "@/lib/utils";
 
 // --- Import DTOs ---
 import {
   AdminOrderDTO,
-  // AdminOrderDetailDTO, // Sẽ định nghĩa lại ở dưới
   OrderStatus,
   PaymentStatus,
   PageResponseDTO
 } from "@/types/adminOrderDTO";
 
-// --- 1. SỬA LẠI TYPE DTO (Thêm 2 lý do) ---
+// DTO cho chi tiết (Cập nhật type đúng với logic mới)
 type AdminOrderDetailDTO = {
   id: number;
   orderNumber: string;
@@ -51,27 +48,30 @@ type AdminOrderDetailDTO = {
   orderStatus: OrderStatus;
   paymentStatus: PaymentStatus;
   paymentMethod: string;
-  customerName: string;
+  
+  // Đây là thông tin NGƯỜI NHẬN (từ checkout)
+  customerName: string; 
   phone: string;
-  email: string;
   address: string;
-  note?: string; // Ghi chú của khách
+  
+  // Đây là thông tin TÀI KHOẢN (từ user logged in)
+  email: string; 
+  
+  note?: string;
   subtotal: number;
   shippingFee: number;
   couponDiscount: number;
   totalAmount: number;
-  items: any[]; // (Giữ nguyên type items của bạn)
-  stockReturned: boolean;  // <-- Đã có
-
-  // --- THÊM 2 TRƯỜNG MỚI (Admin cần xem) ---
-  cancellationReason?: string; // <-- LÝ DO HỦY
-  disputeReason?: string; // <-- LÝ DO KHIẾU NẠI
+  items: any[];
+  stockReturned: boolean;
+  cancellationReason?: string;
+  disputeReason?: string;
 };
-// ---
 
 type OrderAuditLogResponseDTO = {
   id: number;
   staffName: string;
+  staffEmail?: string;
   description: string;
   fieldChanged?: string;
   oldValue?: string;
@@ -79,7 +79,7 @@ type OrderAuditLogResponseDTO = {
   createdAt: string;
 };
 
-// --- Helper API Call (Giữ nguyên) ---
+// --- Helper API Call ---
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 const manualFetchApi = async (url: string, options: RequestInit = {}) => {
   const { token } = useAuthStore.getState();
@@ -92,43 +92,29 @@ const manualFetchApi = async (url: string, options: RequestInit = {}) => {
   const response = await fetch(`${API_URL}${url}`, { ...options, headers });
 
   if (!response.ok) {
-    // --- SỬA LỖI 403 ---
-    // (Bắt lỗi 403 (Forbidden) từ BE)
     if (response.status === 403) {
-      // Thử đọc JSON lỗi
       try {
         const responseData = await response.json();
-        // Ưu tiên message từ BE (vd: "Nhân viên không có quyền...")
         throw new Error(responseData.message || "Bạn không có quyền thực hiện hành động này.");
       } catch (e) {
          throw new Error("Bạn không có quyền thực hiện hành động này.");
       }
     }
-
-    // Thử đọc JSON lỗi (cho các lỗi khác 400, 500)
     try {
       const responseData = await response.json();
       throw new Error(responseData.message || "Có lỗi xảy ra");
     } catch (e: any) {
-      // Nếu lỗi 403 đã throw ở trên, nó sẽ bị bắt ở đây
-      if (e.message.includes("Bạn không có quyền")) {
-         throw e; // Ném lại lỗi 403
-      }
-      // Nếu body không có JSON
+      if (e.message.includes("Bạn không có quyền")) throw e;
       throw new Error(`Lỗi ${response.status}: ${response.statusText}`);
     }
-    // --- KẾT THÚC SỬA ---
   }
 
-  // Chỉ parse JSON nếu response OK và có nội dung
   const text = await response.text();
-  if (!text) {
-    return null; // Trả về null nếu body rỗng (ví dụ: 204 No Content)
-  }
+  if (!text) return null;
   return JSON.parse(text);
 };
 
-// --- (Các hằng số & Helpers giữ nguyên) ---
+// --- Constants ---
 const ITEMS_PER_PAGE = 5;
 const statusColors: Record<OrderStatus, string> = {
   PENDING: "border-yellow-500/50 bg-yellow-500/10 text-yellow-700 dark:text-yellow-300",
@@ -164,11 +150,10 @@ const paymentStatusColors: Record<PaymentStatus, string> = {
 };
 const formatCurrency = (amount: number) => `₫${amount.toLocaleString('vi-VN')}`;
 
-// --- Component Chính ---
 export function OrderManagement() {
   // --- States ---
   const [orders, setOrders] = useState<AdminOrderDTO[]>([]);
-  const [page, setPage] = useState(1); // Client tự quản lý số trang (bắt đầu từ 1)
+  const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
   const [totalElements, setTotalElements] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -190,18 +175,15 @@ export function OrderManagement() {
   const [isConfirmingStock, setIsConfirmingStock] = useState(false);
   const [stockConfirmOrderId, setStockConfirmOrderId] = useState<number | null>(null);
 
-  // --- SỬA PHÂN QUYỀN: Lấy user và roles từ store ---
+  // --- Phân Quyền ---
   const { user } = useAuthStore();
   const roles = user?.roles || [];
-  // (Thêm ROLE_ để khớp với Spring Security)
   const isStaff = roles.includes('STAFF');
   const isManager = roles.includes('MANAGER');
-  const isAdmin = roles.includes('ADMIN'); // (Admin thường không có ROLE_)
-  // (isManagerOrAdmin sẽ là biến chính để kiểm soát nút "nguy hiểm")
+  const isAdmin = roles.includes('ADMIN');
   const isManagerOrAdmin = isManager || isAdmin;
-  // --- KẾT THÚC SỬA PHÂN QUYỀN ---
 
-  // --- 3. REFACTOR STATE DIALOG (QUAN TRỌNG) ---
+  // --- Dialog Config ---
   const [reasonInput, setReasonInput] = useState("");
 
   type DialogConfigState = {
@@ -210,13 +192,11 @@ export function OrderManagement() {
     description: string;
     confirmText: string;
     confirmVariant: "default" | "destructive";
-
     requiresReason: boolean;
     reasonLabel?: string;
     reasonPlaceholder?: string;
     isReasonRequired?: boolean;
     reasonType?: 'input' | 'textarea';
-
     displayReason?: string;
     actionType: 'updateStatus' | 'refund' | 'refundCod' | 'confirmStock' | 'none';
     orderId?: number;
@@ -237,13 +217,11 @@ export function OrderManagement() {
 
   const [dialogConfig, setDialogConfig] = useState<DialogConfigState>(initialDialogConfig);
 
-  // Hàm đóng/mở dialog mới
   const closeDialog = () => {
     setDialogConfig(initialDialogConfig);
     setReasonInput("");
   };
 
-  // Hàm mở popup cho Cập nhật Trạng thái (Giữ nguyên)
   const openUpdateStatusDialog = (order: AdminOrderDTO | AdminOrderDetailDTO, newStatus: OrderStatus) => {
     let config: Partial<DialogConfigState> = {};
 
@@ -286,7 +264,7 @@ export function OrderManagement() {
       case "COMPLETED":
         config = { title: "Xác nhận Hoàn Tất", description: `Bạn có chắc muốn HOÀN TẤT đơn hàng #${order.orderNumber}?`, confirmText: "Hoàn tất" };
         break;
-      case "PENDING": // Hoàn tác
+      case "PENDING":
         config = { title: "Xác nhận Hoàn tác", description: `Bạn có chắc muốn hoàn tác đơn #${order.orderNumber} về "Chờ xác nhận"? Hàng sẽ được cộng lại kho.`, confirmText: "Hoàn tác" };
         break;
     }
@@ -302,7 +280,6 @@ export function OrderManagement() {
     });
   };
 
-  // Hàm mở popup cho Hoàn tiền (VNPAY) (Giữ nguyên)
   const openRefundDialog = (order: AdminOrderDTO | AdminOrderDetailDTO) => {
     setDialogConfig({
       ...initialDialogConfig,
@@ -318,7 +295,6 @@ export function OrderManagement() {
     });
   };
 
-  // Hàm mở popup cho Hoàn tiền COD (Giữ nguyên)
   const openCodRefundDialog = (order: AdminOrderDTO | AdminOrderDetailDTO) => {
     setDialogConfig({
       ...initialDialogConfig,
@@ -333,15 +309,12 @@ export function OrderManagement() {
     });
   };
 
-  // Hàm mở popup Xác nhận Nhập kho (Đã thêm)
   const openConfirmStockDialog = (order: AdminOrderDTO | AdminOrderDetailDTO) => {
-
     let reasonText: string;
-
     if ('cancellationReason' in order && order.cancellationReason) {
       reasonText = order.cancellationReason;
     } else {
-      if (!('items' in order)) { // 'items' chỉ có trong DetailDTO
+      if (!('items' in order)) {
         reasonText = "Vui lòng MỞ CHI TIẾT ĐƠN HÀNG để xem lý do hủy chính xác.";
       } else {
         reasonText = "Đơn hàng này không có lý do hủy.";
@@ -365,15 +338,11 @@ export function OrderManagement() {
   };
 
   // --- Logic API ---
-
-  // (Hàm fetchOrders giữ nguyên)
   const fetchOrders = useCallback(async () => {
     setIsLoading(true);
     try {
       const query = new URLSearchParams();
-      
-      // SỬA: Gửi page - 1 (vì Client đếm từ 1, Server đếm từ 0)
-      query.append("page", String(page - 1)); 
+      query.append("page", String(page - 1));
       query.append("size", String(ITEMS_PER_PAGE));
       query.append("status", statusFilter);
       
@@ -384,8 +353,6 @@ export function OrderManagement() {
       if (!response) return;
 
       const data: PageResponseDTO<AdminOrderDTO> = response.data;
-      
-      // SỬA: Cập nhật dữ liệu
       setOrders(data.content || []);
       setTotalPages(data.totalPages ?? 0);
       setTotalElements(data.totalElements ?? 0);
@@ -395,13 +362,12 @@ export function OrderManagement() {
     } finally {
       setIsLoading(false);
     }
-  }, [page, statusFilter, searchTerm]); // Dependency là 'page'
+  }, [page, statusFilter, searchTerm]);
 
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
 
-  // (Hàm fetchHistory (cho Modal))
   const fetchOrderHistory = async (orderId: number) => {
     setIsFetchingHistory(true);
     setOrderHistory([]);
@@ -415,7 +381,6 @@ export function OrderManagement() {
     }
   };
 
-  // (Hàm handleViewDetails (cho Modal))
   const handleViewDetails = async (order: AdminOrderDTO) => {
     setSelectedOrder(null);
     setShowDetails(true);
@@ -429,12 +394,9 @@ export function OrderManagement() {
     } finally {
       setIsFetchingItems(false);
     }
-
-    // Tải lịch sử
     fetchOrderHistory(order.id);
   };
 
-  // (Hàm handleUpdateStatus giữ nguyên)
   const handleUpdateStatus = async (orderId: number, newStatus: OrderStatus, note: string = "") => {
     if (isUpdatingStatus) return;
     setIsUpdatingStatus(true);
@@ -445,10 +407,8 @@ export function OrderManagement() {
         method: 'PUT',
         body: JSON.stringify({ newStatus: newStatus, note: note })
       });
-
       const updatedOrder: AdminOrderDTO = response.data;
 
-      // Cập nhật lại list
       setOrders(prevOrders =>
         prevOrders.map(o =>
           o.id === updatedOrder.id ? { ...o, ...updatedOrder } : o
@@ -456,7 +416,6 @@ export function OrderManagement() {
       );
       toast.success(`Đã cập nhật đơn #${updatedOrder.orderNumber} sang "${statusLabels[newStatus]}"`);
 
-      // Cập nhật lại Modal (nếu đang mở)
       if (selectedOrder && selectedOrder.id === orderId) {
         try {
           const detailResponse = await manualFetchApi(`/v1/orders/${orderId}`);
@@ -466,9 +425,7 @@ export function OrderManagement() {
         }
         fetchOrderHistory(orderId);
       }
-
     } catch (err: any) {
-      // Bắt lỗi 403 (Không có quyền)
       toast.error(err.message || "Lỗi khi cập nhật trạng thái.");
     } finally {
       setIsUpdatingStatus(false);
@@ -477,18 +434,15 @@ export function OrderManagement() {
     }
   };
 
-  // (Hàm Hoàn tiền VNPAY)
   const handleRequestRefund = async (orderId: number) => {
     if (isRefunding) return;
     setIsRefunding(true);
     setRefundingOrderId(orderId);
-
     try {
       const response = await manualFetchApi(`/v1/payment/refund/vnpay/${orderId}`, {
         method: 'POST',
       });
       toast.success(response.message || "Gửi yêu cầu hoàn tiền thành công!");
-
       setOrders(prevOrders =>
         prevOrders.map(o =>
           o.id === orderId ? { ...o, paymentStatus: 'REFUNDED' } : o
@@ -507,69 +461,54 @@ export function OrderManagement() {
     }
   };
 
-  // (Hàm xử lý Hoàn tiền COD)
   const handleConfirmCodRefund = async (orderId: number) => {
-    if (isRefunding) return; // Tái sử dụng isRefunding
+    if (isRefunding) return;
     setIsRefunding(true);
     setRefundingOrderId(orderId);
-
     try {
       const response = await manualFetchApi(`/v1/orders/${orderId}/confirm-refund`, {
         method: 'PUT',
       });
-
-      const refundData = response.data; // Đây là RefundResponseDTO
+      const refundData = response.data;
       toast.success(response.message || "Xác nhận hoàn tiền COD thành công!");
-
       setOrders(prevOrders =>
         prevOrders.map(o =>
           o.id === orderId ? { ...o, paymentStatus: refundData.newPaymentStatus } : o
         )
       );
-
       if (selectedOrder && selectedOrder.id === orderId) {
         setSelectedOrder(prev => prev ? ({ ...prev, paymentStatus: refundData.newPaymentStatus }) : null);
-        fetchOrderHistory(orderId); // Tải lại lịch sử
+        fetchOrderHistory(orderId);
       }
-
     } catch (err: any) {
       toast.error(err.message || "Lỗi khi xác nhận hoàn tiền COD.");
     } finally {
       setIsRefunding(false);
       setRefundingOrderId(null);
-      closeDialog(); // Đóng popup
+      closeDialog();
     }
   };
 
-  // (Hàm API Nhập kho)
   const handleConfirmStockReturn = async (orderId: number) => {
     if (isConfirmingStock) return;
     setIsConfirmingStock(true);
     setStockConfirmOrderId(orderId);
-
     try {
       const response = await manualFetchApi(`/v1/orders/${orderId}/confirm-stock-return`, {
         method: 'PUT',
       });
-
-      const updatedOrder = response.data as AdminOrderDTO; // BE trả về AdminOrderDTO
+      const updatedOrder = response.data as AdminOrderDTO;
       toast.success(response.message || "Xác nhận nhập kho thành công!");
-
-      // Cập nhật lại list (Lấy data mới từ BE)
       setOrders(prevOrders =>
         prevOrders.map(o =>
           o.id === orderId ? { ...o, ...updatedOrder } : o
         )
       );
-
-      // Cập nhật lại Modal (nếu đang mở)
       if (selectedOrder && selectedOrder.id === orderId) {
-        // Tải lại toàn bộ chi tiết để đảm bảo đồng bộ
         const detailResponse = await manualFetchApi(`/v1/orders/${orderId}`);
         setSelectedOrder(detailResponse.data as AdminOrderDetailDTO);
-        fetchOrderHistory(orderId); // Tải lại lịch sử
+        fetchOrderHistory(orderId);
       }
-
     } catch (err: any) {
       toast.error(err.message || "Lỗi khi xác nhận nhập kho.");
     } finally {
@@ -579,31 +518,21 @@ export function OrderManagement() {
     }
   };
 
-  // (Helpers (Giữ nguyên))
   const handleCloseDetails = () => { setShowDetails(false); setSelectedOrder(null); };
   const handleStatusFilterChange = (newStatus: string) => {
     setStatusFilter(newStatus as OrderStatus | "ALL");
-    setPage(1); // SỬA: Reset về trang 1
+    setPage(1);
   };
   const handlePageChange = (newPage: number) => {
-    setPage(newPage); // SỬA: Cập nhật thẳng vào state page
+    setPage(newPage);
   };
 
-  // Hàm Xác nhận (Đã thêm 'confirmStock')
   const handleConfirmAction = () => {
-    const {
-      actionType,
-      orderId,
-      newStatus,
-      isReasonRequired,
-      reasonLabel
-    } = dialogConfig;
-
+    const { actionType, orderId, newStatus, isReasonRequired, reasonLabel } = dialogConfig;
     if (isReasonRequired && !reasonInput.trim()) {
       toast.error(`Vui lòng nhập ${reasonLabel || 'lý do'}.`);
       return;
     }
-
     if (actionType === 'updateStatus' && orderId && newStatus) {
       handleUpdateStatus(orderId, newStatus, reasonInput);
     } else if (actionType === 'refund' && orderId) {
@@ -615,177 +544,78 @@ export function OrderManagement() {
     }
   };
 
-  // --- HÀM RENDER NÚT (ĐÃ SỬA LỖI LOGIC + THÊM PHÂN QUYỀN) ---
   const renderActionButtons = (order: AdminOrderDTO | AdminOrderDetailDTO) => {
     const buttons = [];
     const buttonBaseClass = "w-[110px] justify-center text-xs h-8";
-
-    // (Check 3 state loading)
     const isLoadingStatus = isUpdatingStatus && updatingStatusOrderId === order.id;
     const isLoadingRefund = isRefunding && refundingOrderId === order.id;
     const isLoadingStock = isConfirmingStock && stockConfirmOrderId === order.id;
     const isDisabled = isLoadingStatus || isLoadingRefund || isLoadingStock;
 
-    // Nút Hoàn tiền (VNPAY / COD) - Chỉ MANAGER / ADMIN
-    if (isManagerOrAdmin && // <-- PHÂN QUYỀN (Đã đúng)
-      order.paymentStatus === 'PENDING_REFUND') {
-
+    if (isManagerOrAdmin && order.paymentStatus === 'PENDING_REFUND') {
       if (order.paymentMethod === 'VNPAY') {
         buttons.push(
-          <Button
-            key="refund"
-            size="sm"
-            variant="destructive"
-            className={`bg-orange-600 hover:bg-orange-700 text-white ${buttonBaseClass}`}
-            onClick={() => openRefundDialog(order)}
-            disabled={isDisabled}
-          >
-            {isLoadingRefund ? (
-              <Loader2 size={14} className="mr-1 animate-spin" />
-            ) : (
-              <History size={14} className="mr-1" />
-            )}
-            Hoàn tiền
+          <Button key="refund" size="sm" variant="destructive" className={`bg-orange-600 hover:bg-orange-700 text-white ${buttonBaseClass}`} onClick={() => openRefundDialog(order)} disabled={isDisabled}>
+            {isLoadingRefund ? <Loader2 size={14} className="mr-1 animate-spin" /> : <History size={14} className="mr-1" />} Hoàn tiền
           </Button>
         );
       } else if (order.paymentMethod === 'COD') {
         buttons.push(
-          <Button
-            key="refund_cod"
-            size="sm"
-            variant="default"
-            className={`bg-green-600 hover:bg-green-700 text-white ${buttonBaseClass}`}
-            onClick={() => openCodRefundDialog(order)}
-            disabled={isDisabled}
-          >
-            {isLoadingRefund ? (
-              <Loader2 size={14} className="mr-1 animate-spin" />
-            ) : (
-              <Check size={14} className="mr-1" />
-            )}
-            Xác nhận
+          <Button key="refund_cod" size="sm" variant="default" className={`bg-green-600 hover:bg-green-700 text-white ${buttonBaseClass}`} onClick={() => openCodRefundDialog(order)} disabled={isDisabled}>
+            {isLoadingRefund ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Check size={14} className="mr-1" />} Xác nhận
           </Button>
         );
       }
     }
 
-    // Nút Nhập Kho - Chỉ MANAGER / ADMIN
-    // @ts-ignore (Bỏ qua lỗi TS vì AdminOrderDTO có thể thiếu 'stockReturned')
-    if (isManagerOrAdmin && // <-- PHÂN QUYỀN (Đã đúng)
-      order.orderStatus === 'CANCELLED' &&
-      // @ts-ignore
-      order.stockReturned === false
-    ) {
+    // @ts-ignore
+    if (isManagerOrAdmin && order.orderStatus === 'CANCELLED' && order.stockReturned === false) {
       buttons.push(
-        <Button
-          key="stock_return"
-          size="sm"
-          variant="outline"
-          className={`border-blue-600 text-blue-700 hover:bg-blue-100 ${buttonBaseClass}`}
-          onClick={() => openConfirmStockDialog(order)}
-          disabled={isDisabled}
-        >
-          {isLoadingStock ? (
-            <Loader2 size={14} className="mr-1 animate-spin" />
-          ) : (
-            <Package size={14} className="mr-1" />
-          )}
-          Nhập kho
+        <Button key="stock_return" size="sm" variant="outline" className={`border-blue-600 text-blue-700 hover:bg-blue-100 ${buttonBaseClass}`} onClick={() => openConfirmStockDialog(order)} disabled={isDisabled}>
+          {isLoadingStock ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Package size={14} className="mr-1" />} Nhập kho
         </Button>
       );
     }
-    // --- KẾT THÚC SỬA LOGIC ---
 
-    // Các nút theo trạng thái (switch...)
     switch (order.orderStatus) {
       case "PENDING":
-        // Đơn PENDING (chưa thanh toán / COD)
-        // Cả Staff và Manager đều có thể Xác nhận hoặc Hủy
-        buttons.push(<Button key="confirm" size="sm" variant="secondary" className={`bg-blue-500 hover:bg-blue-600 text-white ${buttonBaseClass}`} disabled={isDisabled}
-          onClick={() => openUpdateStatusDialog(order, "CONFIRMED")}
-        > {isLoadingStatus ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Check size={14} className="mr-1" />} Xác nhận </Button>);
-        
-        buttons.push(<Button key="cancel" size="sm" variant="destructive" className={buttonBaseClass} disabled={isDisabled}
-          onClick={() => openUpdateStatusDialog(order, "CANCELLED")}
-        > {isLoadingStatus ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Ban size={14} className="mr-1" />} Hủy </Button>);
+        buttons.push(<Button key="confirm" size="sm" variant="secondary" className={`bg-blue-500 hover:bg-blue-600 text-white ${buttonBaseClass}`} disabled={isDisabled} onClick={() => openUpdateStatusDialog(order, "CONFIRMED")}> {isLoadingStatus ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Check size={14} className="mr-1" />} Xác nhận </Button>);
+        buttons.push(<Button key="cancel" size="sm" variant="destructive" className={buttonBaseClass} disabled={isDisabled} onClick={() => openUpdateStatusDialog(order, "CANCELLED")}> {isLoadingStatus ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Ban size={14} className="mr-1" />} Hủy </Button>);
         break;
-
       case "CONFIRMED":
-        // Đơn Đã xác nhận (có thể đã thanh toán)
-        // Cả Staff và Manager đều có thể Gửi hàng
-        buttons.push(<Button key="ship" size="sm" variant="secondary" className={`bg-purple-500 hover:bg-purple-600 text-white ${buttonBaseClass}`} disabled={isDisabled}
-          onClick={() => openUpdateStatusDialog(order, "SHIPPING")}
-        > {isLoadingStatus ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Truck size={14} className="mr-1" />} Gửi hàng </Button>);
-
-        // --- SỬA LỖI: Dùng 'isManagerOrAdmin' (Logic đúng) ---
+        buttons.push(<Button key="ship" size="sm" variant="secondary" className={`bg-purple-500 hover:bg-purple-600 text-white ${buttonBaseClass}`} disabled={isDisabled} onClick={() => openUpdateStatusDialog(order, "SHIPPING")}> {isLoadingStatus ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Truck size={14} className="mr-1" />} Gửi hàng </Button>);
         if (isManagerOrAdmin) {
-          buttons.push(<Button key="cancel_proc" size="sm" variant="destructive" className={buttonBaseClass} disabled={isDisabled}
-            onClick={() => openUpdateStatusDialog(order, "CANCELLED")}
-          > {isLoadingStatus ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Ban size={14} className="mr-1" />} Hủy </Button>);
-
-          // Nút Hoàn tác - Chỉ MANAGER / ADMIN
-          buttons.push(<Button key="undo_confirm" size="sm" variant="outline" title="Hoàn lại Chờ xác nhận" className="h-8 px-2" disabled={isDisabled}
-            onClick={() => openUpdateStatusDialog(order, "PENDING")}
-          > {isLoadingStatus ? <Loader2 size={14} className="animate-spin" /> : <Undo size={14} />} </Button>);
+          buttons.push(<Button key="cancel_proc" size="sm" variant="destructive" className={buttonBaseClass} disabled={isDisabled} onClick={() => openUpdateStatusDialog(order, "CANCELLED")}> {isLoadingStatus ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Ban size={14} className="mr-1" />} Hủy </Button>);
+          buttons.push(<Button key="undo_confirm" size="sm" variant="outline" title="Hoàn lại Chờ xác nhận" className="h-8 px-2" disabled={isDisabled} onClick={() => openUpdateStatusDialog(order, "PENDING")}> {isLoadingStatus ? <Loader2 size={14} className="animate-spin" /> : <Undo size={14} />} </Button>);
         }
-        // --- KẾT THÚC SỬA LỖI ---
         break;
-
       case "SHIPPING":
-        // Đang giao
-        // Cả Staff và Manager đều có thể xác nhận "Đã giao"
-        buttons.push(<Button key="delivered" size="sm" variant="secondary" className={`bg-green-500 hover:bg-green-600 text-white ${buttonBaseClass}`} disabled={isDisabled}
-          onClick={() => openUpdateStatusDialog(order, "DELIVERED")}
-        > {isLoadingStatus ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Check size={14} className="mr-1" />} Đã giao </Button>);
-
-        // Nút Hủy (đang giao) - Chỉ MANAGER / ADMIN (vì cần hoàn kho)
-        if (isManagerOrAdmin) { // <-- SỬA: Dùng 'isManagerOrAdmin'
-          buttons.push(<Button key="cancel_ship" size="sm" variant="destructive" className={buttonBaseClass} disabled={isDisabled}
-            onClick={() => openUpdateStatusDialog(order, "CANCELLED")}
-          > {isLoadingStatus ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Ban size={14} className="mr-1" />} Hủy </Button>);
+        buttons.push(<Button key="delivered" size="sm" variant="secondary" className={`bg-green-500 hover:bg-green-600 text-white ${buttonBaseClass}`} disabled={isDisabled} onClick={() => openUpdateStatusDialog(order, "DELIVERED")}> {isLoadingStatus ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Check size={14} className="mr-1" />} Đã giao </Button>);
+        if (isManagerOrAdmin) {
+          buttons.push(<Button key="cancel_ship" size="sm" variant="destructive" className={buttonBaseClass} disabled={isDisabled} onClick={() => openUpdateStatusDialog(order, "CANCELLED")}> {isLoadingStatus ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Ban size={14} className="mr-1" />} Hủy </Button>);
         }
         break;
-
       case "DELIVERED":
-        // Đã giao
-        // Cả Staff và Manager đều có thể "Hoàn tất"
-        buttons.push(<Button key="complete" size="sm" variant="secondary" className={`bg-gray-500 hover:bg-gray-600 text-white ${buttonBaseClass}`} disabled={isDisabled}
-          onClick={() => openUpdateStatusDialog(order, "COMPLETED")}
-        > {isLoadingStatus ? <Loader2 size={14} className="mr-1 animate-spin" /> : <PackageCheck size={14} className="mr-1" />} Hoàn tất </Button>);
-
-        // Nút Hủy/Trả hàng - Chỉ MANAGER / ADMIN (vì cần hoàn kho/hoàn tiền)
-        if (isManagerOrAdmin) { // <-- SỬA: Dùng 'isManagerOrAdmin'
-          buttons.push(<Button key="cancel_delivered" size="sm" variant="destructive" className={buttonBaseClass} disabled={isDisabled}
-            onClick={() => openUpdateStatusDialog(order, "CANCELLED")}
-          >
-            {isLoadingStatus ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Ban size={14} className="mr-1" />} Hủy/Trả hàng
-          </Button>);
+        buttons.push(<Button key="complete" size="sm" variant="secondary" className={`bg-gray-500 hover:bg-gray-600 text-white ${buttonBaseClass}`} disabled={isDisabled} onClick={() => openUpdateStatusDialog(order, "COMPLETED")}> {isLoadingStatus ? <Loader2 size={14} className="mr-1 animate-spin" /> : <PackageCheck size={14} className="mr-1" />} Hoàn tất </Button>);
+        if (isManagerOrAdmin) {
+          buttons.push(<Button key="cancel_delivered" size="sm" variant="destructive" className={buttonBaseClass} disabled={isDisabled} onClick={() => openUpdateStatusDialog(order, "CANCELLED")}> {isLoadingStatus ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Ban size={14} className="mr-1" />} Hủy/Trả hàng </Button>);
         }
         break;
-
       case "DISPUTE":
-        // Xử lý Khiếu nại - Chỉ MANAGER / ADMIN
-        if (isManagerOrAdmin) { // <-- SỬA: Dùng 'isManagerOrAdmin'
-          buttons.push(<Button key="complete" size="sm" variant="secondary" className={`bg-gray-500 hover:bg-gray-600 text-white ${buttonBaseClass}`} disabled={isDisabled}
-            onClick={() => openUpdateStatusDialog(order, "COMPLETED")}
-          > {isLoadingStatus ? <Loader2 size={14} className="mr-1 animate-spin" /> : <PackageCheck size={14} className="mr-1" />} Hoàn tất </Button>);
-          buttons.push(<Button key="resolve_cancel" size="sm" variant="destructive" className={buttonBaseClass} disabled={isDisabled}
-            onClick={() => openUpdateStatusDialog(order, "CANCELLED")}
-          > {isLoadingStatus ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Ban size={14} className="mr-1" />} Hủy/Hoàn tiền </Button>);
+        if (isManagerOrAdmin) {
+          buttons.push(<Button key="complete" size="sm" variant="secondary" className={`bg-gray-500 hover:bg-gray-600 text-white ${buttonBaseClass}`} disabled={isDisabled} onClick={() => openUpdateStatusDialog(order, "COMPLETED")}> {isLoadingStatus ? <Loader2 size={14} className="mr-1 animate-spin" /> : <PackageCheck size={14} className="mr-1" />} Hoàn tất </Button>);
+          buttons.push(<Button key="resolve_cancel" size="sm" variant="destructive" className={buttonBaseClass} disabled={isDisabled} onClick={() => openUpdateStatusDialog(order, "CANCELLED")}> {isLoadingStatus ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Ban size={14} className="mr-1" />} Hủy/Hoàn tiền </Button>);
         }
         break;
       default:
         break;
     }
-
     return <>{buttons}</>;
   };
 
-  // --- 9. JSX ---
   return (
     <div className="p-4 sm:p-6 space-y-6">
       <Card>
-        {/* ... (Phần CardHeader, Tabs, Search Input giữ nguyên) ... */}
         <CardHeader>
           <CardTitle>Danh sách đơn hàng ({totalElements})</CardTitle>
           <Tabs value={statusFilter} onValueChange={handleStatusFilterChange} className="mt-4">
@@ -798,30 +628,12 @@ export function OrderManagement() {
               <TabsTrigger value="DELIVERED">Đã giao</TabsTrigger>
               <TabsTrigger value="COMPLETED">Hoàn tất</TabsTrigger>
               <TabsTrigger value="CANCELLED">Đã hủy</TabsTrigger>
-              {isManagerOrAdmin && (
-              <TabsTrigger
-                value="PENDING_REFUND"
-                className="text-orange-600 font-semibold"
-              >
-                Chờ hoàn tiền
-              </TabsTrigger>
-            )}
-
-            {isManagerOrAdmin && (
-              <TabsTrigger
-                value="PENDING_STOCK_RETURN"
-                className="text-blue-600 font-semibold" 
-              >
-                Chờ nhập kho
-              </TabsTrigger>
-            )}
-            {/* --- KẾT THÚC THÊM --- */}
+              {isManagerOrAdmin && (<TabsTrigger value="PENDING_REFUND" className="text-orange-600 font-semibold">Chờ hoàn tiền</TabsTrigger>)}
+              {isManagerOrAdmin && (<TabsTrigger value="PENDING_STOCK_RETURN" className="text-blue-600 font-semibold">Chờ nhập kho</TabsTrigger>)}
             </TabsList>
           </Tabs>
-          <div className="mt-4 flex gap-2 items-center"> <Search size={18} className="text-muted-foreground" /> <Input placeholder="Tìm mã đơn, tên khách, SĐT..." value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setPage(1) }} className="flex-1 h-9" /> </div>
+          <div className="mt-4 flex gap-2 items-center"> <Search size={18} className="text-muted-foreground" /> <Input placeholder="Tìm theo tên người nhận, SĐT người nhận, Email tài khoản..." value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setPage(1) }} className="flex-1 h-9" /> </div>
         </CardHeader>
-
-        {/* ... (Phần CardContent, Bảng <table> giữ nguyên) ... */}
         <CardContent>
           {isLoading ? (
             <div className="text-center py-10 text-muted-foreground">
@@ -833,11 +645,13 @@ export function OrderManagement() {
             <>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  {/* ... (thead giữ nguyên) ... */}
                   <thead className="bg-muted/30">
                     <tr className="border-b">
                       <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Mã đơn</th>
-                      <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Khách hàng</th>
+                      
+                      {/* THAY ĐỔI HEADER TABLE */}
+                      <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Người nhận / Email</th>
+                      
                       <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Ngày đặt</th>
                       <th className="text-right py-2.5 px-3 font-semibold text-foreground/80">Tổng cộng</th>
                       <th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Thanh toán</th>
@@ -847,7 +661,6 @@ export function OrderManagement() {
                   </thead>
                   <tbody>
                     {orders.map((order) => {
-                      // Tách biến isDisabled ra ngoài
                       const isDisabled = (isUpdatingStatus && updatingStatusOrderId === order.id) ||
                         (isRefunding && refundingOrderId === order.id) ||
                         (isConfirmingStock && stockConfirmOrderId === order.id);
@@ -855,27 +668,38 @@ export function OrderManagement() {
                       return (
                         <tr key={order.id} className="border-b last:border-b-0 hover:bg-muted/50">
                           <td className="py-2 px-3 font-medium">{order.orderNumber}</td>
-                          <td className="py-2 px-3">{order.customerName}</td>
+                          
+                          <td className="py-2 px-3">
+                            <div className="flex flex-col max-w-[200px]">
+                              {/* Tên người nhận (customerName) */}
+                              <div className="flex items-center gap-1.5">
+                                <User size={14} className="text-muted-foreground/70" />
+                                <span className="font-medium truncate" title={order.customerName}>
+                                  {order.customerName}
+                                </span>
+                              </div>
+                              
+                              {/* Email tài khoản */}
+                              {/* @ts-ignore */}
+                              <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-0.5">
+                                <Mail size={12} className="text-muted-foreground/70" />
+                                <span className="truncate" title={order.email || "Không có email"}>
+                                  {order.email || ""}
+                                </span>
+                              </div>
+                            </div>
+                          </td>
+
                           <td className="py-2 px-3 text-muted-foreground">{new Date(order.createdAt).toLocaleDateString('vi-VN')}</td>
                           <td className="py-2 px-3 text-right font-semibold">{formatCurrency(order.totalAmount)}</td>
                           <td className="py-2 px-3 text-xs">
                             <div className="flex items-center justify-center gap-1.5">
                               {order.paymentMethod === 'VNPAY' ? (
-                                <div title="VNPAY (Online)">
-                                  <CreditCard size={16} className="text-blue-600" />
-                                </div>
+                                <div title="VNPAY (Online)"> <CreditCard size={16} className="text-blue-600" /> </div>
                               ) : (
-                                <div title="COD (Tiền mặt)">
-                                  <Landmark size={16} className="text-green-600" />
-                                </div>
+                                <div title="COD (Tiền mặt)"> <Landmark size={16} className="text-green-600" /> </div>
                               )}
-                              <Badge
-                                variant="outline"
-                                className={`
-                                  min-w-[110px] justify-center 
-                                  text-[11px] font-medium ${paymentStatusColors[order.paymentStatus]}
-                                `}
-                              >
+                              <Badge variant="outline" className={`min-w-[110px] justify-center text-[11px] font-medium ${paymentStatusColors[order.paymentStatus]}`}>
                                 {paymentStatusLabels[order.paymentStatus]}
                               </Badge>
                             </div>
@@ -885,53 +709,25 @@ export function OrderManagement() {
                               {statusLabels[order.orderStatus]}
                             </Badge>
                           </td>
-
-                          {/* --- SỬA LỖI TRÙNG LẶP: Tách nút [Xem] ra --- */}
                           <td className="py-2 px-3">
-                            <div className={`
-                              flex gap-1.5 items-center w-full
-                              ${(order.orderStatus === 'COMPLETED' ||
-                                (order.orderStatus === 'CANCELLED' &&
-                                // @ts-ignore (Dùng stockReturned để căn giữa)
-                                (order.paymentStatus !== 'PENDING_REFUND' && (!order.stockReturned || order.stockReturned === true)))
-                              )
-                                ? 'justify-center'
-                                : 'justify-start'
-                              }
-                            `}>
-
-                              {/* Nút [Xem] chỉ render ở Bảng */}
-                              <Button
-                                key="view"
-                                variant="outline"
-                                size="sm"
-                                className="h-8 px-2"
-                                onClick={() => handleViewDetails(order)}
-                                disabled={isDisabled}
-                              >
+                            <div className={`flex gap-1.5 items-center w-full ${(order.orderStatus === 'COMPLETED' || (order.orderStatus === 'CANCELLED' && (order.paymentStatus !== 'PENDING_REFUND' && (!// @ts-ignore
+                              order.stockReturned || // @ts-ignore
+                              order.stockReturned === true)))) ? 'justify-center' : 'justify-start'}`}>
+                              <Button key="view" variant="outline" size="sm" className="h-8 px-2" onClick={() => handleViewDetails(order)} disabled={isDisabled}>
                                 <Eye size={14} />
                               </Button>
-
-                              {/* Render tất cả các nút nghiệp vụ còn lại */}
                               {renderActionButtons(order)}
                             </div>
                           </td>
-                          {/* --- KẾT THÚC SỬA --- */}
-
                         </tr>
                       )
                     })}
                   </tbody>
                 </table>
               </div>
-              {/* ... (Pagination giữ nguyên) ... */}
               {totalPages > 1 && (
                 <div className="flex justify-center pt-4">
-                  <Pagination
-                    currentPage={page} // Luôn đúng vì là state client
-                    totalPages={totalPages}
-                    onPageChange={handlePageChange}
-                  />
+                  <Pagination currentPage={page} totalPages={totalPages} onPageChange={handlePageChange} />
                 </div>
               )}
             </>
@@ -939,11 +735,10 @@ export function OrderManagement() {
         </CardContent>
       </Card>
 
-      {/* --- Modal Chi Tiết --- */}
+      {/* --- Modal Chi Tiết (ĐÃ SỬA LẠI LOGIC HIỂN THỊ) --- */}
       {showDetails && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 animate-fade-in duration-200" onClick={handleCloseDetails}>
           <Card className="w-full max-w-3xl bg-card shadow-xl animate-scale-in duration-200" onClick={(e) => e.stopPropagation()}>
-            {/* ... (Modal Header giữ nguyên) ... */}
             <CardHeader className="flex flex-row items-center justify-between pb-3 border-b">
               {selectedOrder ? (
                 <CardTitle className="text-lg font-semibold">Chi tiết đơn hàng #{selectedOrder.orderNumber}</CardTitle>
@@ -953,35 +748,70 @@ export function OrderManagement() {
               <Button variant="ghost" size="icon" className="w-7 h-7 -mr-2 -mt-1 text-muted-foreground hover:bg-muted" onClick={handleCloseDetails}> <X size={18} /> </Button>
             </CardHeader>
             <CardContent className="pt-6 space-y-5 max-h-[80vh] overflow-y-auto">
-
               {isFetchingItems || !selectedOrder ? (
-                // ... (Loading spinner giữ nguyên) ...
                 <div className="text-center py-10 text-muted-foreground">
                   <Loader2 className="w-6 h-6 animate-spin mx-auto" />
                   <p>Đang tải chi tiết đơn hàng...</p>
                 </div>
               ) : (
                 <>
-                  {/* ... (Modal Content giữ nguyên: Thông tin, Lý do, Thanh toán, Sản phẩm, Timeline...) ... */}
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-3 text-sm">
+                  {/* 1. THÔNG TIN CHUNG */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                     <div className="md:col-span-1"> <p className="text-xs text-muted-foreground flex items-center gap-1"><Package size={14} /> Mã đơn hàng</p> <p className="font-semibold text-base">{selectedOrder.orderNumber}</p> </div>
                     <div className="md:col-span-1"> <p className="text-xs text-muted-foreground">Ngày đặt</p> <p className="font-medium">{new Date(selectedOrder.createdAt).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })}</p> </div>
-                    <div className="md:col-span-1"> <p className="text-xs text-muted-foreground">Trạng thái ĐH</p> <Badge variant="outline" className={`text-xs ${statusColors[selectedOrder.orderStatus]}`}>{statusLabels[selectedOrder.orderStatus]}</Badge> </div>
-                    <div className="md:col-span-1"> <p className="text-xs text-muted-foreground">Khách hàng</p> <p className="font-medium">{selectedOrder.customerName}</p> </div>
-                    <div className="md:col-span-2"> <p className="text-xs text-muted-foreground flex items-center gap-1"><PhoneCall size={14} /> Số điện thoại</p> <p className="font-medium">{selectedOrder.phone || "-"}</p> </div>
-                    <div className="col-span-2 md:col-span-3"> <p className="text-xs text-muted-foreground flex items-center gap-1"><MapPin size={14} /> Địa chỉ giao hàng</p> <p className="font-medium">{selectedOrder.address || "-"}</p> </div>
                     <div className="md:col-span-1"> <p className="text-xs text-muted-foreground">P.Thức TT</p> <p className="font-medium">{selectedOrder.paymentMethod}</p> </div>
                     <div className="md:col-span-1"> <p className="text-xs text-muted-foreground">Trạng thái TT</p> <Badge variant="outline" className={`text-xs ${paymentStatusColors[selectedOrder.paymentStatus]}`}>{paymentStatusLabels[selectedOrder.paymentStatus]}</Badge> </div>
                   </div>
 
-                  {selectedOrder.note && (
-                    <div className="border rounded-md p-4 bg-blue-50 border-blue-200">
-                      <h4 className="font-semibold text-blue-700 flex items-center gap-2">
-                        <ScrollText size={16} /> Ghi chú của khách hàng:
-                      </h4>
-                      <p className="text-sm text-blue-600 italic pt-1 pl-6">{selectedOrder.note}</p>
+                  {/* 2. THÔNG TIN GIAO HÀNG (NGƯỜI NHẬN) */}
+                  <div className="border rounded-md p-4 bg-muted/10 space-y-3">
+                    <h4 className="font-semibold text-base flex items-center gap-2 text-primary">
+                      <Truck size={18} /> Thông tin giao hàng (Người nhận)
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                        <div>
+                            <p className="text-xs text-muted-foreground">Họ tên người nhận</p>
+                            <p className="font-semibold text-base">{selectedOrder.customerName}</p>
+                        </div>
+                        <div>
+                            <p className="text-xs text-muted-foreground">Số điện thoại người nhận</p>
+                            <p className="font-medium">{selectedOrder.phone || "-"}</p>
+                        </div>
+                        <div className="md:col-span-2">
+                            <p className="text-xs text-muted-foreground flex items-center gap-1"><MapPin size={14} /> Địa chỉ giao hàng</p>
+                            <p className="font-medium">{selectedOrder.address || "-"}</p>
+                        </div>
                     </div>
-                  )}
+                  </div>
+
+                  {/* 3. THÔNG TIN TÀI KHOẢN & GHI CHÚ */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                     {/* Tài khoản */}
+                    <div className="border rounded-md p-3 bg-blue-50/50 border-blue-100">
+                        <p className="text-xs text-muted-foreground flex items-center gap-1 mb-1">
+                            <Mail size={14} /> Tài khoản đặt hàng
+                        </p>
+                        <p className="font-medium text-blue-700 truncate" title={selectedOrder.email}>
+                            {selectedOrder.email || "(Không xác định)"}
+                        </p>
+                    </div>
+                    
+                    {/* Ghi chú */}
+                    {selectedOrder.note ? (
+                        <div className="border rounded-md p-3 bg-yellow-50/50 border-yellow-100">
+                            <p className="text-xs text-muted-foreground flex items-center gap-1 mb-1">
+                                <ScrollText size={14} /> Ghi chú
+                            </p>
+                            <p className="text-sm text-yellow-700 italic">{selectedOrder.note}</p>
+                        </div>
+                    ) : (
+                        <div className="border rounded-md p-3 bg-muted/20">
+                            <p className="text-xs text-muted-foreground">Không có ghi chú</p>
+                        </div>
+                    )}
+                  </div>
+
+                  {/* CÁC BOX TRẠNG THÁI ĐẶC BIỆT */}
                   {selectedOrder.orderStatus === 'CANCELLED' && selectedOrder.cancellationReason && (
                     <div className="border rounded-md p-4 bg-red-50 border-red-200">
                       <h4 className="font-semibold text-red-700">Lý do hủy đơn hàng:</h4>
@@ -995,13 +825,12 @@ export function OrderManagement() {
                     </div>
                   )}
 
+                  {/* THANH TOÁN & SẢN PHẨM */}
                   <div className="border rounded-md p-4 space-y-2 text-sm bg-muted/30">
                     <h4 className="font-semibold mb-2 text-base">Chi tiết thanh toán</h4>
                     <div className="flex justify-between"><span>Tiền hàng ({selectedOrder.items.length} SP):</span> <span>{formatCurrency(selectedOrder.subtotal)}</span></div>
                     <div className="flex justify-between"><span>Phí vận chuyển:</span> <span>{formatCurrency(selectedOrder.shippingFee)}</span></div>
-                    {selectedOrder.couponDiscount > 0 && (
-                      <div className="flex justify-between text-destructive"> <span>Giảm giá:</span> <span>- {formatCurrency(selectedOrder.couponDiscount)}</span> </div>
-                    )}
+                    {selectedOrder.couponDiscount > 0 && (<div className="flex justify-between text-destructive"> <span>Giảm giá:</span> <span>- {formatCurrency(selectedOrder.couponDiscount)}</span> </div>)}
                     <div className="flex justify-between font-semibold border-t pt-2 mt-2 text-base"><span>Tổng cộng:</span> <span>{formatCurrency(selectedOrder.totalAmount)}</span></div>
                   </div>
 
@@ -1027,31 +856,15 @@ export function OrderManagement() {
 
                   <div className="border-t pt-4">
                     <h4 className="font-semibold mb-4 text-base">Lịch sử thao tác</h4>
-                    <OrderHistoryTimeline
-                      logs={orderHistory}
-                      isLoading={isFetchingHistory}
-                    />
+                    <OrderHistoryTimeline logs={orderHistory} isLoading={isFetchingHistory} />
                   </div>
 
-                  {/* --- SỬA LỖI TRÙNG LẶP: Dọn dẹp Modal Footer --- */}
                   <div className="flex justify-end items-center pt-4 border-t">
-                    {/* Bây giờ chỉ còn 1 div duy nhất ở bên phải */}
                     <div className="flex gap-2">
-
-                      {/* Render TẤT CẢ các nút nghiệp vụ (Hoàn tiền, Nhập kho, Status...) */}
                       {renderActionButtons(selectedOrder)}
-
-                      {/* Nút Đóng */}
-                      <Button
-                        variant="outline"
-                        onClick={handleCloseDetails}
-                        disabled={isRefunding || isUpdatingStatus || isConfirmingStock}
-                      >
-                        Đóng
-                      </Button>
+                      <Button variant="outline" onClick={handleCloseDetails} disabled={isRefunding || isUpdatingStatus || isConfirmingStock}> Đóng </Button>
                     </div>
                   </div>
-                  {/* --- KẾT THÚC SỬA --- */}
                 </>
               )}
             </CardContent>
@@ -1059,92 +872,37 @@ export function OrderManagement() {
         </div>
       )}
 
-      {/* --- SỬA 8: Popup Xác nhận (Thêm logic hiển thị lý do) --- */}
       <AlertDialog open={dialogConfig.isOpen} onOpenChange={closeDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{dialogConfig.title}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {dialogConfig.description}
-            </AlertDialogDescription>
+            <AlertDialogDescription>{dialogConfig.description}</AlertDialogDescription>
           </AlertDialogHeader>
-
-          {/* --- THÊM MỚI: HIỂN THỊ LÝ DO HỦY --- */}
           {dialogConfig.displayReason && (
             <div className="border rounded-md p-3 bg-muted/50">
-              <h4 className="text-sm font-semibold text-foreground/80 mb-1">
-                Lý do hủy được ghi nhận:
-              </h4>
-              <p className="text-sm text-foreground italic">
-                "{dialogConfig.displayReason}"
-              </p>
+              <h4 className="text-sm font-semibold text-foreground/80 mb-1">Lý do hủy được ghi nhận:</h4>
+              <p className="text-sm text-foreground italic">"{dialogConfig.displayReason}"</p>
             </div>
           )}
-          {/* --- KẾT THÚC THÊM --- */}
-
-          {/* PHẦN NHẬP LIỆU (Cho nút Hủy/Giao hàng) */}
           {dialogConfig.requiresReason && (
             <div className="space-y-2 pt-2">
-              <label htmlFor="dialogReasonInput" className="text-sm font-medium text-foreground/80">
-                {dialogConfig.reasonLabel}
-              </label>
+              <label htmlFor="dialogReasonInput" className="text-sm font-medium text-foreground/80">{dialogConfig.reasonLabel}</label>
               {dialogConfig.reasonType === 'textarea' ? (
-                <Textarea
-                  id="dialogReasonInput"
-                  placeholder={dialogConfig.reasonPlaceholder}
-                  value={reasonInput}
-                  onChange={(e) => setReasonInput(e.target.value)}
-                  rows={3}
-                  className="resize-none"
-                  autoFocus
-                />
+                <Textarea id="dialogReasonInput" placeholder={dialogConfig.reasonPlaceholder} value={reasonInput} onChange={(e) => setReasonInput(e.target.value)} rows={3} className="resize-none" autoFocus />
               ) : (
-                <Input
-                  id="dialogReasonInput"
-                  placeholder={dialogConfig.reasonPlaceholder}
-                  value={reasonInput}
-                  onChange={(e) => setReasonInput(e.target.value)}
-                  autoFocus
-                />
+                <Input id="dialogReasonInput" placeholder={dialogConfig.reasonPlaceholder} value={reasonInput} onChange={(e) => setReasonInput(e.target.value)} autoFocus />
               )}
             </div>
           )}
-
           <AlertDialogFooter>
-            {/* Sửa 'disabled' cho Nút Hủy */}
-            <AlertDialogCancel onClick={closeDialog} disabled={isUpdatingStatus || isRefunding || isConfirmingStock}>
-              Hủy
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleConfirmAction}
-              disabled={
-                isUpdatingStatus ||
-                isRefunding ||
-                isConfirmingStock || // <-- Thêm check này
-                (dialogConfig.isReasonRequired && !reasonInput.trim()) // Khóa nút nếu chưa nhập lý do
-              }
-              className={cn(
-                buttonVariants({ variant: dialogConfig.confirmVariant }),
-                // Màu cam (VNPAY)
-                dialogConfig.actionType === "refund" ? "bg-orange-600 hover:bg-orange-700" : "",
-                // Màu xanh lá (COD)
-                dialogConfig.actionType === "refundCod" ? "bg-green-600 hover:bg-green-700" : "",
-                // --- THÊM MỚI: Màu xanh dương (Nhập kho) ---
-                dialogConfig.actionType === "confirmStock" ? "bg-blue-600 hover:bg-blue-700 text-white" : ""
-              )}
-            >
-              {/* Sửa logic Spinner */}
-              {(isUpdatingStatus && dialogConfig.actionType === 'updateStatus') ||
-                (isRefunding && (dialogConfig.actionType === 'refund' || dialogConfig.actionType === 'refundCod')) ||
-                (isConfirmingStock && dialogConfig.actionType === 'confirmStock') ? ( // <-- Thêm check này
-                <Loader2 size={16} className="mr-2 animate-spin" />
-              ) : null}
+            <AlertDialogCancel onClick={closeDialog} disabled={isUpdatingStatus || isRefunding || isConfirmingStock}>Hủy</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmAction} disabled={isUpdatingStatus || isRefunding || isConfirmingStock || (dialogConfig.isReasonRequired && !reasonInput.trim())} className={cn(buttonVariants({ variant: dialogConfig.confirmVariant }), dialogConfig.actionType === "refund" ? "bg-orange-600 hover:bg-orange-700" : "", dialogConfig.actionType === "refundCod" ? "bg-green-600 hover:bg-green-700" : "", dialogConfig.actionType === "confirmStock" ? "bg-blue-600 hover:bg-blue-700 text-white" : "")}>
+              {(isUpdatingStatus && dialogConfig.actionType === 'updateStatus') || (isRefunding && (dialogConfig.actionType === 'refund' || dialogConfig.actionType === 'refundCod')) || (isConfirmingStock && dialogConfig.actionType === 'confirmStock') ? (<Loader2 size={16} className="mr-2 animate-spin" />) : null}
               {dialogConfig.confirmText}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
     </div>
   );
 }
