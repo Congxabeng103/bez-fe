@@ -6,9 +6,9 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Search, Eye, Ban, Check, Truck, Undo, Package,X,
+  Search, Eye, Ban, Check, Truck, Undo, Package, X,
   MapPin, PhoneCall, ScrollText, Loader2, PackageCheck,
-  CreditCard, Landmark, History, Mail, User
+  CreditCard, Landmark, History, Mail, User, AlertTriangle
 } from "lucide-react";
 import { Pagination } from "@/components/store/pagination";
 import { toast } from "sonner";
@@ -40,7 +40,7 @@ import {
   PageResponseDTO
 } from "@/types/adminOrderDTO";
 
-// DTO cho chi tiết (Cập nhật type đúng với logic mới)
+// DTO cho chi tiết
 type AdminOrderDetailDTO = {
   id: number;
   orderNumber: string;
@@ -49,12 +49,12 @@ type AdminOrderDetailDTO = {
   paymentStatus: PaymentStatus;
   paymentMethod: string;
   
-  // Đây là thông tin NGƯỜI NHẬN (từ checkout)
+  // Thông tin NGƯỜI NHẬN
   customerName: string; 
   phone: string;
   address: string;
   
-  // Đây là thông tin TÀI KHOẢN (từ user logged in)
+  // Thông tin TÀI KHOẢN
   email: string; 
   
   note?: string;
@@ -112,6 +112,29 @@ const manualFetchApi = async (url: string, options: RequestInit = {}) => {
   const text = await response.text();
   if (!text) return null;
   return JSON.parse(text);
+};
+
+// --- Helper: Tính toán ngày quá hạn ---
+// Logic: Nếu đơn đang SHIPPING mà quá 5 ngày chưa xong -> Cảnh báo
+// --- Helper: Tính toán ngày quá hạn (Logic thông minh) ---
+const isOrderOverdue = (createdAt: string, status: OrderStatus): boolean => {
+    const createdDate = new Date(createdAt);
+    const currentDate = new Date();
+    const diffTime = Math.abs(currentDate.getTime() - createdDate.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+
+    // LOGIC 1: Đang giao mà quá 5 ngày -> Cảnh báo (Shipper chậm)
+    if (status === "SHIPPING" && diffDays > 5) {
+        return true;
+    }
+
+    // LOGIC 2: Đơn mới hoặc Đã xác nhận mà "ngâm" quá 3 ngày chưa xử lý -> Cảnh báo (Shop chậm)
+    if ((status === "PENDING" || status === "CONFIRMED") && diffDays > 3) {
+        return true;
+    }
+
+    // Các trạng thái khác (Đã giao, Hủy, Hoàn tất...) -> Không bao giờ cảnh báo
+    return false;
 };
 
 // --- Constants ---
@@ -591,8 +614,24 @@ export function OrderManagement() {
         break;
       case "SHIPPING":
         buttons.push(<Button key="delivered" size="sm" variant="secondary" className={`bg-green-500 hover:bg-green-600 text-white ${buttonBaseClass}`} disabled={isDisabled} onClick={() => openUpdateStatusDialog(order, "DELIVERED")}> {isLoadingStatus ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Check size={14} className="mr-1" />} Đã giao </Button>);
+        
         if (isManagerOrAdmin) {
-          buttons.push(<Button key="cancel_ship" size="sm" variant="destructive" className={buttonBaseClass} disabled={isDisabled} onClick={() => openUpdateStatusDialog(order, "CANCELLED")}> {isLoadingStatus ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Ban size={14} className="mr-1" />} Hủy </Button>);
+          // === NÚT GIAO THẤT BẠI (MỚI) ===
+          buttons.push(
+            <Button 
+              key="delivery_failed" 
+              size="sm" 
+              variant="destructive" 
+              className={buttonBaseClass} 
+              disabled={isDisabled} 
+              onClick={() => {
+                 setReasonInput("Giao hàng thất bại: Không liên lạc được với khách / Khách từ chối nhận."); 
+                 openUpdateStatusDialog(order, "CANCELLED");
+              }}
+            >
+              {isLoadingStatus ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Ban size={14} className="mr-1" />} Thất bại
+            </Button>
+          );
         }
         break;
       case "DELIVERED":
@@ -690,7 +729,18 @@ export function OrderManagement() {
                             </div>
                           </td>
 
-                          <td className="py-2 px-3 text-muted-foreground">{new Date(order.createdAt).toLocaleDateString('vi-VN')}</td>
+                          {/* HIỂN THỊ CẢNH BÁO QUÁ HẠN TẠI CỘT NGÀY ĐẶT */}
+                          <td className="py-2 px-3 text-muted-foreground">
+                              <div className="flex flex-col">
+                                <span>{new Date(order.createdAt).toLocaleDateString('vi-VN')}</span>
+                                {isOrderOverdue(order.createdAt, order.orderStatus) && (
+                                    <span className="text-[10px] text-red-600 font-bold bg-red-100 px-1 rounded w-fit mt-1 flex items-center gap-1 animate-pulse" title="Đơn hàng đang giao quá 5 ngày">
+                                        <AlertTriangle size={10} /> Quá hạn
+                                    </span>
+                                )}
+                              </div>
+                          </td>
+
                           <td className="py-2 px-3 text-right font-semibold">{formatCurrency(order.totalAmount)}</td>
                           <td className="py-2 px-3 text-xs">
                             <div className="flex items-center justify-center gap-1.5">
@@ -786,7 +836,7 @@ export function OrderManagement() {
 
                   {/* 3. THÔNG TIN TÀI KHOẢN & GHI CHÚ */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                     {/* Tài khoản */}
+                      {/* Tài khoản */}
                     <div className="border rounded-md p-3 bg-blue-50/50 border-blue-100">
                         <p className="text-xs text-muted-foreground flex items-center gap-1 mb-1">
                             <Mail size={14} /> Tài khoản đặt hàng
