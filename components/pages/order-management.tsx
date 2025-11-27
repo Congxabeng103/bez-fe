@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Search, Eye, Ban, Check, Truck, Undo, Package, X,
   MapPin, PhoneCall, ScrollText, Loader2, PackageCheck,
-  CreditCard, Landmark, History, Mail, User, AlertTriangle
+  CreditCard, Landmark, History, Mail, User, AlertTriangle, Zap // <-- 1. Thêm icon Zap
 } from "lucide-react";
 import { Pagination } from "@/components/store/pagination";
 import { toast } from "sonner";
@@ -182,6 +182,9 @@ export function OrderManagement() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<OrderStatus | "ALL">("ALL");
+
+  // --- 2. THÊM STATE ĐẾM SỐ LƯỢNG ---
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
 
   // States cho Modal
   const [selectedOrder, setSelectedOrder] = useState<AdminOrderDetailDTO | null>(null);
@@ -360,7 +363,29 @@ export function OrderManagement() {
     });
   };
 
-  // --- Logic API ---
+  // --- 3. THÊM HÀM FETCH COUNT ---
+  const fetchStatusCounts = useCallback(async () => {
+    const statuses = ["PENDING", "CONFIRMED", "SHIPPING", "DELIVERED", "COMPLETED", "CANCELLED", "DISPUTE", "PENDING_REFUND", "PENDING_STOCK_RETURN"];
+    const counts: Record<string, number> = {};
+
+    try {
+        await Promise.all(statuses.map(async (status) => {
+            const query = new URLSearchParams();
+            query.append("page", "0");
+            query.append("size", "1");
+            query.append("status", status);
+            const res = await manualFetchApi(`/v1/orders?${query.toString()}`);
+            if (res && res.data) {
+                counts[status] = res.data.totalElements || 0;
+            }
+        }));
+        setStatusCounts(counts);
+    } catch (error) {
+        console.error("Lỗi lấy số lượng:", error);
+    }
+  }, []);
+
+  // --- API Fetching ---
   const fetchOrders = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -379,13 +404,16 @@ export function OrderManagement() {
       setOrders(data.content || []);
       setTotalPages(data.totalPages ?? 0);
       setTotalElements(data.totalElements ?? 0);
+      
+      // 4. Gọi fetch counts mỗi khi load danh sách
+      fetchStatusCounts();
 
     } catch (err: any) {
       toast.error(err.message || "Lỗi khi tải danh sách đơn hàng.");
     } finally {
       setIsLoading(false);
     }
-  }, [page, statusFilter, searchTerm]);
+  }, [page, statusFilter, searchTerm, fetchStatusCounts]);
 
   useEffect(() => {
     fetchOrders();
@@ -438,6 +466,9 @@ export function OrderManagement() {
         )
       );
       toast.success(`Đã cập nhật đơn #${updatedOrder.orderNumber} sang "${statusLabels[newStatus]}"`);
+      
+      // Update count
+      fetchStatusCounts();
 
       if (selectedOrder && selectedOrder.id === orderId) {
         try {
@@ -471,6 +502,7 @@ export function OrderManagement() {
           o.id === orderId ? { ...o, paymentStatus: 'REFUNDED' } : o
         )
       );
+      fetchStatusCounts();
       if (selectedOrder && selectedOrder.id === orderId) {
         setSelectedOrder(prev => prev ? ({ ...prev, paymentStatus: 'REFUNDED' }) : null);
         fetchOrderHistory(orderId);
@@ -499,6 +531,7 @@ export function OrderManagement() {
           o.id === orderId ? { ...o, paymentStatus: refundData.newPaymentStatus } : o
         )
       );
+      fetchStatusCounts();
       if (selectedOrder && selectedOrder.id === orderId) {
         setSelectedOrder(prev => prev ? ({ ...prev, paymentStatus: refundData.newPaymentStatus }) : null);
         fetchOrderHistory(orderId);
@@ -527,6 +560,7 @@ export function OrderManagement() {
           o.id === orderId ? { ...o, ...updatedOrder } : o
         )
       );
+      fetchStatusCounts();
       if (selectedOrder && selectedOrder.id === orderId) {
         const detailResponse = await manualFetchApi(`/v1/orders/${orderId}`);
         setSelectedOrder(detailResponse.data as AdminOrderDetailDTO);
@@ -543,7 +577,7 @@ export function OrderManagement() {
 
   const handleCloseDetails = () => { setShowDetails(false); setSelectedOrder(null); };
   const handleStatusFilterChange = (newStatus: string) => {
-    setStatusFilter(newStatus as OrderStatus | "ALL");
+    setStatusFilter(newStatus as any);
     setPage(1);
   };
   const handlePageChange = (newPage: number) => {
@@ -616,7 +650,6 @@ export function OrderManagement() {
         buttons.push(<Button key="delivered" size="sm" variant="secondary" className={`bg-green-500 hover:bg-green-600 text-white ${buttonBaseClass}`} disabled={isDisabled} onClick={() => openUpdateStatusDialog(order, "DELIVERED")}> {isLoadingStatus ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Check size={14} className="mr-1" />} Đã giao </Button>);
         
         if (isManagerOrAdmin) {
-          // === NÚT GIAO THẤT BẠI (MỚI) ===
           buttons.push(
             <Button 
               key="delivery_failed" 
@@ -625,8 +658,8 @@ export function OrderManagement() {
               className={buttonBaseClass} 
               disabled={isDisabled} 
               onClick={() => {
-                 setReasonInput("Giao hàng thất bại: Không liên lạc được với khách / Khách từ chối nhận."); 
-                 openUpdateStatusDialog(order, "CANCELLED");
+                  setReasonInput("Giao hàng thất bại: Không liên lạc được với khách / Khách từ chối nhận."); 
+                  openUpdateStatusDialog(order, "CANCELLED");
               }}
             >
               {isLoadingStatus ? <Loader2 size={14} className="mr-1 animate-spin" /> : <Ban size={14} className="mr-1" />} Thất bại
@@ -652,6 +685,16 @@ export function OrderManagement() {
     return <>{buttons}</>;
   };
 
+  // --- 5. Component hiển thị Badge số lượng ---
+  const CountBadge = ({ count }: { count: number }) => {
+    if (!count || count === 0) return null;
+    return (
+        <span className="ml-1.5 inline-flex items-center justify-center bg-foreground/10 text-foreground text-[10px] font-bold h-5 min-w-5 px-1.5 rounded-full">
+            {count}
+        </span>
+    );
+  };
+
   return (
     <div className="p-4 sm:p-6 space-y-6">
       <Card>
@@ -660,15 +703,38 @@ export function OrderManagement() {
           <Tabs value={statusFilter} onValueChange={handleStatusFilterChange} className="mt-4">
             <TabsList className="grid w-full grid-cols-4 sm:grid-cols-8">
               <TabsTrigger value="ALL">Tất cả</TabsTrigger>
-              <TabsTrigger value="DISPUTE" className="text-orange-600 font-semibold">Khiếu nại</TabsTrigger>
-              <TabsTrigger value="PENDING">Chờ xác nhận</TabsTrigger>
-              <TabsTrigger value="CONFIRMED">Đã xác nhận</TabsTrigger>
-              <TabsTrigger value="SHIPPING">Đang giao</TabsTrigger>
-              <TabsTrigger value="DELIVERED">Đã giao</TabsTrigger>
-              <TabsTrigger value="COMPLETED">Hoàn tất</TabsTrigger>
-              <TabsTrigger value="CANCELLED">Đã hủy</TabsTrigger>
-              {isManagerOrAdmin && (<TabsTrigger value="PENDING_REFUND" className="text-orange-600 font-semibold">Chờ hoàn tiền</TabsTrigger>)}
-              {isManagerOrAdmin && (<TabsTrigger value="PENDING_STOCK_RETURN" className="text-blue-600 font-semibold">Chờ nhập kho</TabsTrigger>)}
+              {/* 6. Thêm Badge vào các Tabs */}
+              <TabsTrigger value="DISPUTE" className="text-orange-600 font-semibold">
+                Khiếu nại <CountBadge count={statusCounts['DISPUTE']} />
+              </TabsTrigger>
+              <TabsTrigger value="PENDING">
+                Chờ xác nhận <CountBadge count={statusCounts['PENDING']} />
+              </TabsTrigger>
+              <TabsTrigger value="CONFIRMED">
+                Đã xác nhận <CountBadge count={statusCounts['CONFIRMED']} />
+              </TabsTrigger>
+              <TabsTrigger value="SHIPPING">
+                Đang giao <CountBadge count={statusCounts['SHIPPING']} />
+              </TabsTrigger>
+              <TabsTrigger value="DELIVERED">
+                Đã giao <CountBadge count={statusCounts['DELIVERED']} />
+              </TabsTrigger>
+              <TabsTrigger value="COMPLETED">
+                Hoàn tất <CountBadge count={statusCounts['COMPLETED']} />
+              </TabsTrigger>
+              <TabsTrigger value="CANCELLED">
+                Đã hủy <CountBadge count={statusCounts['CANCELLED']} />
+              </TabsTrigger>
+              {isManagerOrAdmin && (
+                <TabsTrigger value="PENDING_REFUND" className="text-orange-600 font-semibold">
+                    Chờ hoàn tiền <CountBadge count={statusCounts['PENDING_REFUND']} />
+                </TabsTrigger>
+              )}
+              {isManagerOrAdmin && (
+                <TabsTrigger value="PENDING_STOCK_RETURN" className="text-blue-600 font-semibold">
+                    Chờ nhập kho <CountBadge count={statusCounts['PENDING_STOCK_RETURN']} />
+                </TabsTrigger>
+              )}
             </TabsList>
           </Tabs>
           <div className="mt-4 flex gap-2 items-center"> <Search size={18} className="text-muted-foreground" /> <Input placeholder="Tìm theo tên người nhận, SĐT người nhận, Email tài khoản..." value={searchTerm} onChange={(e) => { setSearchTerm(e.target.value); setPage(1) }} className="flex-1 h-9" /> </div>
@@ -688,7 +754,6 @@ export function OrderManagement() {
                     <tr className="border-b">
                       <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Mã đơn</th>
                       
-                      {/* THAY ĐỔI HEADER TABLE */}
                       <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Người nhận / Email</th>
                       
                       <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Ngày đặt</th>
@@ -706,19 +771,26 @@ export function OrderManagement() {
 
                       return (
                         <tr key={order.id} className="border-b last:border-b-0 hover:bg-muted/50">
-                          <td className="py-2 px-3 font-medium">{order.orderNumber}</td>
-                          
+                          <td className="py-2 px-3 font-medium">
+                            <div className="flex flex-col items-start gap-1">
+                                <span>{order.orderNumber}</span>
+                                
+                                {/* --- 7. NHẬN DẠNG VNPAY TỰ ĐỘNG XÁC NHẬN --- */}
+                                {order.paymentMethod === 'VNPAY' && order.orderStatus === 'CONFIRMED' && (
+                                    <span className="animate-pulse px-1.5 py-0.5 rounded-[4px] text-[9px] font-bold bg-purple-100 text-purple-700 border border-purple-200 flex items-center gap-1">
+                                        <Zap size={10} className="fill-purple-700" /> VNPAY PAID
+                                    </span>
+                                )}
+                            </div>
+                          </td>
                           <td className="py-2 px-3">
                             <div className="flex flex-col max-w-[200px]">
-                              {/* Tên người nhận (customerName) */}
                               <div className="flex items-center gap-1.5">
                                 <User size={14} className="text-muted-foreground/70" />
                                 <span className="font-medium truncate" title={order.customerName}>
                                   {order.customerName}
                                 </span>
                               </div>
-                              
-                              {/* Email tài khoản */}
                               {/* @ts-ignore */}
                               <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-0.5">
                                 <Mail size={12} className="text-muted-foreground/70" />
@@ -729,7 +801,6 @@ export function OrderManagement() {
                             </div>
                           </td>
 
-                          {/* HIỂN THỊ CẢNH BÁO QUÁ HẠN TẠI CỘT NGÀY ĐẶT */}
                           <td className="py-2 px-3 text-muted-foreground">
                               <div className="flex flex-col">
                                 <span>{new Date(order.createdAt).toLocaleDateString('vi-VN')}</span>
@@ -753,6 +824,15 @@ export function OrderManagement() {
                                 {paymentStatusLabels[order.paymentStatus]}
                               </Badge>
                             </div>
+
+                            {/* --- 8. CẢNH BÁO VNPAY PAID NHƯNG VẪN PENDING (OVERSOLD) --- */}
+                            {order.paymentStatus === 'PAID' && order.orderStatus === 'PENDING' && (
+                                <div className="mt-1.5 flex justify-center">
+                                    <span className="text-[10px] font-bold text-red-600 bg-red-100 border border-red-200 px-1.5 py-0.5 rounded flex items-center gap-1 animate-pulse">
+                                    <AlertTriangle size={10} /> Check Kho
+                                    </span>
+                                </div>
+                            )}
                           </td>
                           <td className="py-2 px-3 text-center">
                             <Badge variant="outline" className={`text-[11px] font-medium ${statusColors[order.orderStatus]}`}>

@@ -28,12 +28,12 @@ const ITEMS_PER_PAGE = 5;
 // --- Interfaces ---
 interface CustomerResponse {
   id: number;
-  name: string; // Full Name
+  name: string;
   firstName: string; 
   lastName: string;
   email: string;
   phone: string | null;
-  totalOrders: number; // <-- Dùng để kiểm tra xóa
+  totalOrders: number;
   totalSpent: number;
   joinDate: string;
   active: boolean;
@@ -61,13 +61,19 @@ interface DialogState {
 export function CustomerManagement() {
   const { user } = useAuthStore();
   const roles = user?.roles || [];
-  const isAdmin = roles.includes("ADMIN");
   
+  // --- PHÂN QUYỀN ---
+  const isAdmin = roles.includes("ADMIN");
+  const isManager = roles.includes("MANAGER");
+
+  const canManageStatus = isAdmin || isManager;
+  const canSoftDelete = isAdmin || isManager;
+  const canHardDelete = isAdmin;
+
   // --- States ---
   const [customers, setCustomers] = useState<CustomerResponse[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
-  // THÊM: State lưu tổng số bản ghi
   const [totalCustomers, setTotalCustomers] = useState(0);
   
   const [searchTerm, setSearchTerm] = useState("");
@@ -81,15 +87,11 @@ export function CustomerManagement() {
     firstName: "", lastName: "", email: "", password: "", phone: null, active: true
   });
   
-  // State lỗi
   const [formErrors, setFormErrors] = useState<CustomerFormErrors>({});
   const [apiError, setApiError] = useState<string | null>(null);
 
-  // State dialog
   const [dialogState, setDialogState] = useState<DialogState>({
-    isOpen: false,
-    action: null,
-    customer: null,
+    isOpen: false, action: null, customer: null,
   });
 
   // --- API Fetching ---
@@ -106,10 +108,9 @@ export function CustomerManagement() {
     try {
       const result = await manualFetchApi(`/v1/users/customers?${query.toString()}`);
       if (result.status === 'SUCCESS' && result.data) {
-        // CẬP NHẬT: Thêm fallback và setTotalCustomers
         setCustomers(result.data.content || []);
         setTotalPages(result.data.totalPages ?? 0);
-        setTotalCustomers(result.data.totalElements ?? 0); // <-- Lấy tổng số bản ghi
+        setTotalCustomers(result.data.totalElements ?? 0);
       } else throw new Error(result.message || "Lỗi tải khách hàng");
     } catch (err: any) { 
       toast.error(`Lỗi: ${err.message}`); 
@@ -127,10 +128,9 @@ export function CustomerManagement() {
     setFormData({ firstName: "", lastName: "", email: "", password: "", phone: null, active: true });
   }
 
-  // Hàm Validate
   const validateForm = (): CustomerFormErrors => {
     const newErrors: CustomerFormErrors = {};
-    const { firstName, lastName, email, password } = formData;
+    const { firstName, lastName, email, password, phone } = formData;
 
     if (!firstName.trim()) newErrors.firstName = "Tên là bắt buộc.";
     if (!lastName.trim()) newErrors.lastName = "Họ (và tên đệm) là bắt buộc.";
@@ -141,9 +141,21 @@ export function CustomerManagement() {
         newErrors.email = "Địa chỉ email không hợp lệ.";
     }
 
+    // --- VALIDATE SĐT (Không bắt buộc, nhưng nhập thì phải đúng định dạng 10 số) ---
+    const phoneRegex = /^0[35789][0-9]{8}$/;
+    if (phone && phone.trim() !== "") {
+        if (!phoneRegex.test(phone.trim())) {
+            newErrors.phone = "SĐT phải là 10 số (Vd: 0987654321).";
+        }
+    }
+
+    // --- VALIDATE MẬT KHẨU (Khi tạo mới) ---
     if (!editingId) {
-        if (!password || password.length < 6) {
-            newErrors.password = "Mật khẩu (tối thiểu 6 ký tự) là bắt buộc.";
+        const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z0-9]).{8,}$/;
+        if (!password) {
+             newErrors.password = "Mật khẩu là bắt buộc.";
+        } else if (!passwordRegex.test(password)) {
+             newErrors.password = "MK yếu: Cần 8 ký tự, Hoa, Thường, Số & Ký tự ĐB.";
         }
     }
     return newErrors;
@@ -166,8 +178,6 @@ export function CustomerManagement() {
     let requestBody: any = {};
 
     if (isEditing) {
-        if (!isAdmin) { toast.error("Bạn không có quyền sửa."); return; }
-        
         url = `/v1/users/${editingId}`;
         method = "PUT";
         requestBody = { 
@@ -175,7 +185,7 @@ export function CustomerManagement() {
             lastName: formData.lastName.trim(),
             email: formData.email.trim(),
             phone: formData.phone ? formData.phone.trim() : null,
-            active: formData.active,
+            active: formData.active, 
         };
     } else {
         url = `/v1/auth/register`; 
@@ -185,6 +195,8 @@ export function CustomerManagement() {
             lastName: formData.lastName.trim(),
             email: formData.email.trim(),
             password: formData.password,
+            // --- THÊM: Gửi Phone khi tạo mới ---
+            phone: formData.phone ? formData.phone.trim() : null, 
         };
     }
 
@@ -195,7 +207,7 @@ export function CustomerManagement() {
       });
 
       if (result.status === 'SUCCESS') {
-        toast.success(isEditing ? "Cập nhật khách hàng thành công!" : "Thêm khách hàng thành công! (Cần kích hoạt email)");
+        toast.success(isEditing ? "Cập nhật khách hàng thành công!" : "Thêm khách hàng thành công!");
         resetForm();
         fetchCustomers();
       } else {
@@ -203,35 +215,29 @@ export function CustomerManagement() {
       }
       
     } catch (err: any) {
-      if (err.message && (err.message.toLowerCase().includes("đã tồn tại") || err.message.toLowerCase().includes("duplicate"))) {
-          setFormErrors({ email: err.message });
-          toast.error(err.message);
-      } else {
-          toast.error(`Lỗi: ${err.message}`);
-          setApiError(err.message);
+      const errorMsg = err.message || "";
+      
+      // --- BẮT LỖI TỪ BACKEND ---
+      if (errorMsg.toLowerCase().includes("email") || errorMsg.toLowerCase().includes("đã tồn tại") || errorMsg.toLowerCase().includes("duplicate")) {
+          setFormErrors(prev => ({ ...prev, email: errorMsg }));
+          toast.error(errorMsg);
+      } 
+      else if (errorMsg.toLowerCase().includes("số điện thoại") || errorMsg.toLowerCase().includes("phone")) {
+          setFormErrors(prev => ({ ...prev, phone: errorMsg }));
+          toast.error("Số điện thoại đã được sử dụng.");
+      }
+      else {
+          toast.error(`Lỗi: ${errorMsg}`);
+          setApiError(errorMsg);
       }
     }
   };
 
   const handleEdit = (customer: CustomerResponse) => {
-    if (!isAdmin) {
-      toast.error("Bạn không có quyền sửa.");
-      return;
-    }
-    
-    const fullName = customer.name || "";
-    const lastSpaceIndex = fullName.lastIndexOf(' ');
-    let firstName = "";
-    let lastName = "";
-    if (lastSpaceIndex === -1) { firstName = fullName; } 
-    else {
-        firstName = fullName.substring(lastSpaceIndex + 1);
-        lastName = fullName.substring(0, lastSpaceIndex);
-    }
-
+    // Dùng trực tiếp firstName, lastName từ API, không cần cắt chuỗi nữa
     setFormData({
-        firstName: firstName,
-        lastName: lastName,
+        firstName: customer.firstName || "",
+        lastName: customer.lastName || "",
         email: customer.email,
         phone: customer.phone || null,
         active: customer.active,
@@ -249,7 +255,16 @@ export function CustomerManagement() {
 
   const handleConfirmAction = async () => {
     const { action, customer } = dialogState;
-    if (!customer || !isAdmin) { toast.error("Hành động không hợp lệ."); closeDialog(); return; };
+    if (!customer) { closeDialog(); return; };
+
+    if ((action === 'delete' || action === 'reactivate') && !canSoftDelete) {
+        toast.error("Chỉ Manager/Admin mới được thực hiện thao tác này.");
+        closeDialog(); return;
+    }
+    if (action === 'permanentDelete' && !canHardDelete) {
+        toast.error("Chỉ Admin mới được xóa vĩnh viễn.");
+        closeDialog(); return;
+    }
 
     try {
       if (action === 'delete') {
@@ -259,23 +274,13 @@ export function CustomerManagement() {
           fetchCustomers();
         } else throw new Error(result.message || "Ngừng hoạt động thất bại");
       } 
-      
       else if (action === 'reactivate') {
         const url = `/v1/users/${customer.id}`;
-        
-        const fullName = customer.name || "";
-        const lastSpaceIndex = fullName.lastIndexOf(' ');
-        let firstName = "";
-        let lastName = "";
-        if (lastSpaceIndex === -1) { firstName = fullName; } 
-        else {
-            firstName = fullName.substring(lastSpaceIndex + 1);
-            lastName = fullName.substring(0, lastSpaceIndex);
-        }
-
         const requestBody = { 
-            firstName: firstName, lastName: lastName,
-            email: customer.email, phone: customer.phone,
+            firstName: customer.firstName || "", 
+            lastName: customer.lastName || "", 
+            email: customer.email, 
+            phone: customer.phone,
             active: true 
         };
         const result = await manualFetchApi(url, { method: "PUT", body: JSON.stringify(requestBody) });
@@ -284,7 +289,6 @@ export function CustomerManagement() {
           fetchCustomers();
         } else throw new Error(result.message || "Kích hoạt thất bại");
       } 
-      
       else if (action === 'permanentDelete') {
         const result = await manualFetchApi(`/v1/users/permanent-delete/${customer.id}`, { method: "DELETE" });
         if (result.status === 'SUCCESS') {
@@ -312,20 +316,19 @@ export function CustomerManagement() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Quản lý khách hàng</h1>
-          <p className="text-sm text-muted-foreground mt-1">Quản lý thông tin khách hàng (Vai trò: USER)</p>
+          <p className="text-sm text-muted-foreground mt-1">
+             {isAdmin ? "Toàn quyền quản trị" : (isManager ? "Quản lý & Giám sát" : "Danh sách khách hàng & Hỗ trợ")}
+          </p>
         </div>
-        {isAdmin && (
-          <Button onClick={() => { resetForm(); setShowForm(true); setEditingId(null); }} className="gap-1.5 self-end sm:self-center" size="sm">
+        <Button onClick={() => { resetForm(); setShowForm(true); setEditingId(null); }} className="gap-1.5 self-end sm:self-center" size="sm">
             <Plus size={16} /> Thêm Khách Hàng
-          </Button>
-        )}
+        </Button>
       </div>
 
-      {/* Lỗi API chung */}
       {apiError && ( <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md border border-destructive/30 animate-shake">{apiError}</div> )}
       
       {/* Form */}
-      {showForm && isAdmin && (
+      {showForm && (
         <Card className="border-blue-500/50 shadow-md animate-fade-in">
           <CardHeader>
             <CardTitle className="text-lg font-semibold">{editingId ? "Chỉnh sửa khách hàng" : "Thêm khách hàng mới"}</CardTitle>
@@ -347,20 +350,51 @@ export function CustomerManagement() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                <div>
-                <Label htmlFor="email" className={`text-xs ${formErrors.email ? 'text-destructive' : 'text-muted-foreground'}`}>Email *</Label>
-                <Input id="email" placeholder="Email" type="email" value={formData.email || ""} onChange={(e) => setFormData({ ...formData, email: e.target.value })} className={`mt-1.5 ${formErrors.email ? 'border-destructive' : ''}`}/>
+                <Label htmlFor="email" className={`text-xs ${formErrors.email ? 'text-destructive' : 'text-muted-foreground'}`}>
+                    Email * {editingId ? "(Không thể sửa)" : ""}
+                </Label>
+                <Input 
+                    id="email" 
+                    // Khóa nếu đang ở chế độ chỉnh sửa
+                    disabled={!!editingId}
+                    placeholder="Email" 
+                    type="email" 
+                    value={formData.email || ""} 
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })} 
+                    // Thêm nền xám khi bị khóa
+                    className={`mt-1.5 ${formErrors.email ? 'border-destructive' : ''} ${editingId ? 'bg-muted/50' : ''}`}
+                />
                 {formErrors.email && <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.email}</p>}
                </div>
                <div>
-                <Label htmlFor="phone" className="text-xs text-muted-foreground">Số điện thoại</Label>
-                <Input id="phone" placeholder="Số điện thoại (tùy chọn)" value={formData.phone || ""} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} className="mt-1.5" disabled={!editingId} />
-                {!editingId && <p className="text-xs text-muted-foreground mt-1.5">SĐT chỉ có thể thêm khi sửa.</p>}
+                <Label htmlFor="phone" className={`text-xs ${formErrors.phone ? 'text-destructive' : 'text-muted-foreground'}`}>Số điện thoại</Label>
+                
+                {/* --- SỬA LẠI INPUT PHONE: MỞ KHÓA --- */}
+                <Input 
+                    id="phone" 
+                    placeholder="Số điện thoại (tùy chọn)" 
+                    value={formData.phone || ""} 
+                    // Logic: Chỉ cho nhập số và tối đa 10 số
+                    onChange={(e) => {
+                        const val = e.target.value;
+                        if (!/^\d*$/.test(val) || val.length > 10) return; 
+                        setFormData({ ...formData, phone: val });
+                    }} 
+                    className={`mt-1.5 ${formErrors.phone ? 'border-destructive' : ''}`}
+                    // Đã XÓA prop: disabled={!editingId}
+                />
+                
+                {formErrors.phone ? (
+                    <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.phone}</p>
+                ) : (
+                    <p className="text-xs text-muted-foreground mt-1.5">SĐT không bắt buộc, nhưng nếu nhập phải đủ 10 số.</p>
+                )}
                </div>
             </div>
 
             {!editingId && (
                <div>
-                <Label htmlFor="passwordInput" className={`text-xs ${formErrors.password ? 'text-destructive' : 'text-muted-foreground'}`}>Mật khẩu * (Ít nhất 6 ký tự)</Label>
+                <Label htmlFor="passwordInput" className={`text-xs ${formErrors.password ? 'text-destructive' : 'text-muted-foreground'}`}>Mật khẩu *</Label>
                 <Input
                   id="passwordInput" type="password" placeholder="Nhập mật khẩu"
                   value={formData.password || ""}
@@ -375,10 +409,13 @@ export function CustomerManagement() {
                 <div className="flex items-center gap-2">
                  <Checkbox
                    id="customerActiveForm"
+                   disabled={!canManageStatus} 
                    checked={formData.active}
                    onCheckedChange={(checked) => setFormData({ ...formData, active: Boolean(checked) })}
                  />
-                 <Label htmlFor="customerActiveForm" className="text-sm">Đang hoạt động</Label>
+                 <Label htmlFor="customerActiveForm" className={`text-sm ${!canManageStatus ? "text-muted-foreground" : ""}`}>
+                    Đang hoạt động {!canManageStatus && "(Chỉ Manager/Admin)"}
+                 </Label>
                 </div>
             )}
 
@@ -393,7 +430,6 @@ export function CustomerManagement() {
       {/* Bảng Danh sách Khách hàng */}
       <Card className="shadow-sm">
         <CardHeader>
-          {/* CẬP NHẬT: Hiển thị tổng số bản ghi */}
           <CardTitle className="text-xl font-semibold">Danh sách khách hàng ({totalCustomers})</CardTitle>
           <Tabs value={filterStatus} onValueChange={handleTabChange} className="mt-4">
             <TabsList className="grid w-full grid-cols-3 md:w-[400px]">
@@ -422,9 +458,7 @@ export function CustomerManagement() {
                         <th className="text-right py-2.5 px-3 font-semibold text-foreground/80">Tổng chi (₫)</th>
                         <th className="text-left py-2.5 px-3 font-semibold text-foreground/80">Ngày tham gia</th>
                         <th className="text-center py-2.5 px-3 font-semibold text-foreground/80">Trạng thái</th>
-                        {isAdmin && (
-                          <th className="text-center py-2.5 px-3 font-semibold text-foreground/80 w-[100px]">Hành động</th>
-                        )}
+                        <th className="text-center py-2.5 px-3 font-semibold text-foreground/80 w-[100px]">Hành động</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -443,30 +477,32 @@ export function CustomerManagement() {
                               {customer.active ? "Hoạt động" : "Ngừng HĐ"}
                             </span>
                           </td>
-                          {isAdmin && (
-                            <td className="py-2 px-3">
-                              <div className="flex gap-1.5 justify-center">
-                                <Button variant="outline" size="icon" className="w-7 h-7" title="Sửa" onClick={() => handleEdit(customer)}><Edit2 size={14} /></Button>
-                                {customer.active ? (
+                          <td className="py-2 px-3">
+                            <div className="flex gap-1.5 justify-center">
+                              <Button variant="outline" size="icon" className="w-7 h-7" title="Sửa thông tin" onClick={() => handleEdit(customer)}><Edit2 size={14} /></Button>
+                              
+                              {customer.active ? (
+                                canSoftDelete && (
                                   <Button variant="outline" size="icon" className="w-7 h-7 text-destructive border-destructive hover:bg-destructive/10" title="Ngừng hoạt động" onClick={() => setDialogState({ isOpen: true, action: 'delete', customer: customer })}>
                                     <Trash2 size={14} />
                                   </Button>
-                                ) : (
-                                  <>
-                                    <Button variant="outline" size="icon" className="w-7 h-7 text-green-600 border-green-600 hover:bg-green-100/50" title="Kích hoạt lại" onClick={() => setDialogState({ isOpen: true, action: 'reactivate', customer: customer })}>
-                                      <RotateCcw size={14} /> 
-                                    </Button>
-                                    
-                                    {customer.totalOrders === 0 && (
-                                       <Button variant="outline" size="icon" className="w-7 h-7 text-red-700 border-red-700 hover:bg-red-100/50 dark:text-red-500 dark:border-red-500 dark:hover:bg-red-900/30" title="XÓA VĨNH VIỄN" onClick={() => setDialogState({ isOpen: true, action: 'permanentDelete', customer: customer })}>
-                                              <XCircle size={14} />
-                                       </Button>
-                                    )}
-                                  </>
-                                )}
-                              </div>
-                            </td>
-                          )}
+                                )
+                              ) : (
+                                <>
+                                  {canManageStatus && (
+                                      <Button variant="outline" size="icon" className="w-7 h-7 text-green-600 border-green-600 hover:bg-green-100/50" title="Kích hoạt lại" onClick={() => setDialogState({ isOpen: true, action: 'reactivate', customer: customer })}>
+                                        <RotateCcw size={14} /> 
+                                      </Button>
+                                  )}
+                                  {customer.totalOrders === 0 && canHardDelete && (
+                                     <Button variant="outline" size="icon" className="w-7 h-7 text-red-700 border-red-700 hover:bg-red-100/50 dark:text-red-500 dark:border-red-500 dark:hover:bg-red-900/30" title="XÓA VĨNH VIỄN" onClick={() => setDialogState({ isOpen: true, action: 'permanentDelete', customer: customer })}>
+                                                <XCircle size={14} />
+                                     </Button>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -477,7 +513,6 @@ export function CustomerManagement() {
             )}
         </CardContent>
 
-        {/* Dialog Xác nhận */}
         <AlertDialog open={dialogState.isOpen} onOpenChange={(open) => !open && closeDialog()}>
           <AlertDialogContent>
             <AlertDialogHeader>

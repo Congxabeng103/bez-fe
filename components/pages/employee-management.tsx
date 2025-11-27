@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Mail, Phone, Edit2, Trash2, Plus, RotateCcw, XCircle } from "lucide-react";
+import { Search, Mail, Phone, Edit2, Trash2, Plus, RotateCcw, XCircle, Eye } from "lucide-react";
 import { useAuthStore } from "@/lib/authStore";
 import { Pagination } from "@/components/store/pagination";
 import { toast } from "sonner";
@@ -29,13 +29,15 @@ const ITEMS_PER_PAGE = 5;
 // --- Interfaces ---
 interface EmployeeResponse {
   id: number;
-  name: string; // Full Name
+  name: string;
+  firstName?: string; // Dữ liệu chuẩn từ API
+  lastName?: string;  // Dữ liệu chuẩn từ API
   email: string;
   phone: string | null;
   joinDate: string; 
   active: boolean;
   role: string;
-  activityCount: number; // <-- THÊM (từ UserResponseDTO)
+  activityCount: number;
 }
 
 interface EmployeeFormData {
@@ -60,13 +62,26 @@ interface DialogState {
 export function EmployeeManagement() {
   const { user } = useAuthStore();
   const roles = user?.roles || [];
-  const isAdmin = roles.includes("ADMIN");
   
+  // --- PHÂN QUYỀN ---
+  const isAdmin = roles.includes("ADMIN");
+  const isManager = roles.includes("MANAGER");
+  // Cho phép truy cập nếu là Admin hoặc Manager
+  const canAccess = isAdmin || isManager;
+
+  // --- Helpers kiểm tra quyền ---
+  const canModifyUser = (targetRole: string) => {
+    if (isAdmin) return true; // Admin sửa được hết
+    if (isManager && targetRole === "STAFF") return true; // Manager chỉ sửa Staff
+    return false; 
+  };
+
+  const canHardDelete = () => isAdmin; // Chỉ Admin mới được xóa cứng
+
   // --- States ---
   const [employees, setEmployees] = useState<EmployeeResponse[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
-  // THÊM: State lưu tổng số bản ghi
   const [totalEmployees, setTotalEmployees] = useState(0);
   
   const [searchTerm, setSearchTerm] = useState("");
@@ -75,26 +90,23 @@ export function EmployeeManagement() {
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [isViewOnlyMode, setIsViewOnlyMode] = useState(false);
   
   const [formData, setFormData] = useState<EmployeeFormData>({
     firstName: "", lastName: "", email: "", phone: null, 
     active: true, password: "", role: "STAFF"
   });
   
-  // State lỗi
   const [formErrors, setFormErrors] = useState<EmployeeFormErrors>({});
   const [apiError, setApiError] = useState<string | null>(null);
   
-  // State dialog
   const [dialogState, setDialogState] = useState<DialogState>({
-    isOpen: false,
-    action: null,
-    employee: null,
+    isOpen: false, action: null, employee: null,
   });
 
   // --- API Fetching ---
   const fetchEmployees = useCallback(async () => {
-    if (!isAdmin) return;
+    if (!canAccess) return;
     setIsFetching(true);
     
     const query = new URLSearchParams();
@@ -107,51 +119,67 @@ export function EmployeeManagement() {
     try {
       const result = await manualFetchApi(`/v1/users/employees?${query.toString()}`);
       if (result.status === 'SUCCESS' && result.data) {
-        // CẬP NHẬT: Thêm fallback và setTotalEmployees
         setEmployees(result.data.content || []);
         setTotalPages(result.data.totalPages ?? 0);
-        setTotalEmployees(result.data.totalElements ?? 0); // <-- Lấy tổng số bản ghi
+        setTotalEmployees(result.data.totalElements ?? 0);
       } else throw new Error(result.message || "Lỗi tải nhân viên");
     } catch (err: any) { 
       toast.error(`Lỗi: ${err.message}`); 
     }
     finally { setIsFetching(false); }
-  }, [isAdmin, currentPage, searchTerm, filterStatus]);
+  }, [canAccess, currentPage, searchTerm, filterStatus]);
 
   useEffect(() => { 
-    if (isAdmin) { fetchEmployees(); }
-  }, [fetchEmployees, isAdmin]);
+    if (canAccess) { fetchEmployees(); }
+  }, [fetchEmployees, canAccess]);
 
   // --- Handlers ---
   const resetForm = () => {
-    setShowForm(false); setEditingId(null); 
-    setApiError(null);
-    setFormErrors({});
+    setShowForm(false); setEditingId(null); setIsViewOnlyMode(false);
+    setApiError(null); setFormErrors({});
     setFormData({ firstName: "", lastName: "", email: "", phone: null, active: true, password: "", role: "STAFF" });
   }
   
   const validateForm = (): EmployeeFormErrors => {
     const newErrors: EmployeeFormErrors = {};
-    const { firstName, lastName, email, role, password } = formData;
+    const { firstName, lastName, email, role, password, phone } = formData;
+    
     if (!firstName.trim()) newErrors.firstName = "Tên là bắt buộc.";
     if (!lastName.trim()) newErrors.lastName = "Họ (và tên đệm) là bắt buộc.";
+    
     if (!email.trim()) {
         newErrors.email = "Email không được để trống.";
     } else if (!/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(email.trim())) {
         newErrors.email = "Địa chỉ email không hợp lệ.";
     }
+    
     if (!role) newErrors.role = "Vai trò là bắt buộc.";
 
-    if (!editingId) {
-        if (!password || password.length < 6) {
-            newErrors.password = "Mật khẩu (tối thiểu 6 ký tự) là bắt buộc.";
+    // --- VALIDATE PHONE (Không bắt buộc, nhưng nhập phải đúng) ---
+    const phoneRegex = /(84|0[3|5|7|8|9])+([0-9]{8})\b/;
+    if (phone && phone.trim() !== "") {
+        if (!phoneRegex.test(phone.trim())) {
+            newErrors.phone = "SĐT không đúng định dạng (10 số).";
+        }
+    }
+
+    // --- VALIDATE PASSWORD (Khi tạo mới) ---
+    if (!editingId && !isViewOnlyMode) {
+        // Regex: Tối thiểu 8 ký tự, 1 Hoa, 1 Thường, 1 Số, 1 Ký tự đặc biệt
+        const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z0-9]).{8,}$/;
+        
+        if (!password) {
+            newErrors.password = "Mật khẩu là bắt buộc.";
+        } else if (!passwordRegex.test(password)) {
+             newErrors.password = "MK yếu: Cần 8 ký tự, Hoa, Thường, Số & Ký tự ĐB.";
         }
     }
     return newErrors;
   }
 
   const handleSubmit = async () => {
-    if (!isAdmin) { toast.error("Bạn không có quyền."); return; }
+    if (isViewOnlyMode) { resetForm(); return; } 
+    if (!canAccess) { toast.error("Bạn không có quyền."); return; }
     
     setApiError(null);
     setFormErrors({});
@@ -164,6 +192,13 @@ export function EmployeeManagement() {
     }
 
     const isEditing = !!editingId;
+    
+    // Check quyền: Manager không được tạo Admin/Manager
+    if (isManager && formData.role !== 'STAFF' && !isEditing) {
+        toast.error("Manager chỉ được tạo Staff.");
+        return;
+    }
+
     let url = "";
     let method = "";
     let requestBody: any = {};
@@ -205,30 +240,31 @@ export function EmployeeManagement() {
         throw new Error(result.message || (isEditing ? "Cập nhật thất bại" : "Tạo thất bại"));
       }
     } catch (err: any) {
-      if (err.message && (err.message.toLowerCase().includes("đã tồn tại") || err.message.toLowerCase().includes("duplicate"))) {
-          setFormErrors({ email: err.message }); 
-          toast.error(err.message);
-      } else {
-          toast.error(`Lỗi: ${err.message}`);
-          setApiError(err.message);
+      const errorMsg = err.message || "";
+      
+      // --- XỬ LÝ LỖI TỪ BACKEND ---
+      if (errorMsg.toLowerCase().includes("email") || errorMsg.toLowerCase().includes("đã tồn tại")) {
+          setFormErrors(prev => ({ ...prev, email: errorMsg }));
+          toast.error("Email đã tồn tại.");
+      } 
+      else if (errorMsg.toLowerCase().includes("số điện thoại") || errorMsg.toLowerCase().includes("phone")) {
+          setFormErrors(prev => ({ ...prev, phone: errorMsg }));
+          toast.error("Số điện thoại đã được sử dụng.");
+      } 
+      else {
+          toast.error(`Lỗi: ${errorMsg}`);
+          setApiError(errorMsg);
       }
     }
   };
 
-  const handleEdit = (employee: EmployeeResponse) => {
-    if (!isAdmin) return;
-    const fullName = employee.name || "";
-    const lastSpaceIndex = fullName.lastIndexOf(' ');
-    let firstName = "";
-    let lastName = "";
-    if (lastSpaceIndex === -1) { firstName = fullName; } 
-    else {
-        firstName = fullName.substring(lastSpaceIndex + 1);
-        lastName = fullName.substring(0, lastSpaceIndex);
-    }
+  const handleEdit = (employee: EmployeeResponse, viewOnly: boolean = false) => {
+    const canEdit = canModifyUser(employee.role);
+    const isViewMode = viewOnly || !canEdit;
+
     setFormData({
-        firstName: firstName,
-        lastName: lastName,
+        firstName: employee.firstName || "", 
+        lastName: employee.lastName || "",
         email: employee.email,
         phone: employee.phone || null,
         active: employee.active,
@@ -236,6 +272,7 @@ export function EmployeeManagement() {
         role: employee.role
     });
     setEditingId(employee.id);
+    setIsViewOnlyMode(isViewMode);
     setShowForm(true);
     setApiError(null);
     setFormErrors({});
@@ -247,7 +284,14 @@ export function EmployeeManagement() {
 
   const handleConfirmAction = async () => {
     const { action, employee } = dialogState;
-    if (!employee || !isAdmin) { toast.error("Hành động không hợp lệ."); closeDialog(); return; };
+    if (!employee || !canAccess) { toast.error("Hành động không hợp lệ."); closeDialog(); return; };
+
+    if ((action === 'delete' || action === 'reactivate') && !canModifyUser(employee.role)) {
+         toast.error("Bạn không có quyền thao tác trên user này."); closeDialog(); return;
+    }
+    if (action === 'permanentDelete' && !canHardDelete()) {
+         toast.error("Chỉ Admin mới được xóa vĩnh viễn."); closeDialog(); return;
+    }
 
     try {
       if (action === 'delete') {
@@ -260,18 +304,11 @@ export function EmployeeManagement() {
       
       else if (action === 'reactivate') {
         const url = `/v1/users/${employee.id}`;
-        const fullName = employee.name || "";
-        const lastSpaceIndex = fullName.lastIndexOf(' ');
-        let firstName = "";
-        let lastName = "";
-        if (lastSpaceIndex === -1) { firstName = fullName; } 
-        else {
-            firstName = fullName.substring(lastSpaceIndex + 1);
-            lastName = fullName.substring(0, lastSpaceIndex);
-        }
         const requestBody = { 
-            firstName: firstName, lastName: lastName,
-            email: employee.email, phone: employee.phone,
+            firstName: employee.firstName || "", 
+            lastName: employee.lastName || "",
+            email: employee.email, 
+            phone: employee.phone,
             active: true
         };
         const result = await manualFetchApi(url, { method: "PUT", body: JSON.stringify(requestBody) });
@@ -303,11 +340,11 @@ export function EmployeeManagement() {
   };
 
   // --- JSX ---
-  if (!isAdmin) {
+  if (!canAccess) {
     return (
       <div className="p-4 sm:p-6 space-y-6 text-center">
         <h1 className="text-2xl sm:text-3xl font-bold text-destructive">Truy cập bị từ chối</h1>
-        <p className="text-muted-foreground">Bạn không có quyền 'ADMIN' để xem trang này.</p>
+        <p className="text-muted-foreground">Bạn không có quyền truy cập trang này.</p>
       </div>
     )
   }
@@ -317,70 +354,106 @@ export function EmployeeManagement() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Quản lý nhân viên</h1>
-          <p className="text-sm text-muted-foreground mt-1">Quản lý thông tin nhân viên (ADMIN, MANAGER, STAFF)</p>
+          <p className="text-sm text-muted-foreground mt-1">
+             {isAdmin ? "Toàn quyền quản trị hệ thống" : "Quản lý nhân viên cấp dưới (Staff)"}
+          </p>
         </div>
-        <Button onClick={() => { resetForm(); setShowForm(true); setEditingId(null); }} className="gap-2" size="sm"> <Plus size={16} /> Thêm nhân viên </Button>
+        <Button onClick={() => { resetForm(); setShowForm(true); setEditingId(null); }} className="gap-2" size="sm"> 
+            <Plus size={16} /> Thêm nhân viên 
+        </Button>
       </div>
 
-      {/* Lỗi API chung */}
       {apiError && ( <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md border border-destructive/30 animate-shake">{apiError}</div> )}
 
-      {/* Form */}
+      {/* --- Form Modal/Inline --- */}
       {showForm && (
         <Card className="border-blue-500/50 shadow-md animate-fade-in">
           <CardHeader>
-            <CardTitle className="text-lg font-semibold">{editingId ? "Chỉnh sửa nhân viên" : "Thêm nhân viên mới"}</CardTitle>
+            <CardTitle className="text-lg font-semibold">
+                {isViewOnlyMode ? "Thông tin chi tiết" : (editingId ? "Chỉnh sửa nhân viên" : "Thêm nhân viên mới")}
+            </CardTitle>
           </CardHeader>
           <CardContent className="pt-6 space-y-4">
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="lastName" className={`text-xs ${formErrors.lastName ? 'text-destructive' : 'text-muted-foreground'}`}>Họ (và tên đệm) *</Label>
-                <Input id="lastName" placeholder="Vd: Đỗ Thành" value={formData.lastName || ""} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} className={`mt-1.5 ${formErrors.lastName ? 'border-destructive' : ''}`}/>
+                <Input id="lastName" disabled={isViewOnlyMode} placeholder="Vd: Đỗ Thành" value={formData.lastName || ""} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} className={`mt-1.5 ${formErrors.lastName ? 'border-destructive' : ''}`}/>
                 {formErrors.lastName && <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.lastName}</p>}
               </div>
               <div>
                 <Label htmlFor="firstName" className={`text-xs ${formErrors.firstName ? 'text-destructive' : 'text-muted-foreground'}`}>Tên *</Label>
-                <Input id="firstName" placeholder="Vd: Công" value={formData.firstName || ""} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} className={`mt-1.5 ${formErrors.firstName ? 'border-destructive' : ''}`}/>
+                <Input id="firstName" disabled={isViewOnlyMode} placeholder="Vd: Công" value={formData.firstName || ""} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} className={`mt-1.5 ${formErrors.firstName ? 'border-destructive' : ''}`}/>
                 {formErrors.firstName && <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.firstName}</p>}
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                <div>
-                <Label htmlFor="email" className={`text-xs ${formErrors.email ? 'text-destructive' : 'text-muted-foreground'}`}>Email *</Label>
-                <Input id="email" placeholder="Email *" type="email" value={formData.email || ""} onChange={(e) => setFormData({ ...formData, email: e.target.value })} className={`mt-1.5 ${formErrors.email ? 'border-destructive' : ''}`}/>
+                {/* Cập nhật Label: Thêm dòng thông báo không thể sửa */}
+                <Label htmlFor="email" className={`text-xs ${formErrors.email ? 'text-destructive' : 'text-muted-foreground'}`}>
+                    Email * {editingId ? "(Không thể sửa)" : ""}
+                </Label>
+                
+                {/* Cập nhật Input: Thêm điều kiện disabled và style background */}
+                <Input 
+                    id="email" 
+                    // Disabled khi: Đang xem chi tiết HOẶC Đang chỉnh sửa (!!editingId)
+                    disabled={isViewOnlyMode || !!editingId} 
+                    placeholder="Email *" 
+                    type="email" 
+                    value={formData.email || ""} 
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })} 
+                    // Thêm class 'bg-muted/50' nếu đang sửa để làm xám ô input
+                    className={`mt-1.5 ${formErrors.email ? 'border-destructive' : ''} ${editingId ? 'bg-muted/50' : ''}`}
+                />
+                
                 {formErrors.email && <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.email}</p>}
                </div>
                <div>
-                <Label htmlFor="phone" className="text-xs text-muted-foreground">Số điện thoại</Label>
-                <Input id="phone" placeholder="Số điện thoại" value={formData.phone || ""} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} className="mt-1.5"/>
+                <Label htmlFor="phone" className={`text-xs ${formErrors.phone ? 'text-destructive' : 'text-muted-foreground'}`}>Số điện thoại</Label>
+                <Input 
+                    id="phone" 
+                    disabled={isViewOnlyMode} 
+                    placeholder="Số điện thoại (tùy chọn)" 
+                    value={formData.phone || ""} 
+                    onChange={(e) => {
+                        const val = e.target.value;
+                        if (!/^\d*$/.test(val)) return; // Chặn chữ
+                        setFormData({ ...formData, phone: val });
+                    }} 
+                    className={`mt-1.5 ${formErrors.phone ? 'border-destructive' : ''}`}
+                />
+                {formErrors.phone ? (
+                    <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.phone}</p>
+                ) : (
+                    !isViewOnlyMode && <p className="text-xs text-muted-foreground mt-1.5">SĐT không bắt buộc, nếu nhập phải đủ 10 số.</p>
+                )}
                </div>
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                <div>
-                <Label htmlFor="role" className={`text-xs ${formErrors.role ? 'text-destructive' : 'text-muted-foreground'}`}>Vai trò * (Không thể sửa)</Label>
-                {/* Luôn khóa Role khi sửa, chỉ cho chọn khi tạo */}
-                {editingId ? (
+                <Label htmlFor="role" className={`text-xs ${formErrors.role ? 'text-destructive' : 'text-muted-foreground'}`}>Vai trò * {editingId ? "(Không thể sửa)" : ""}</Label>
+                {editingId || isViewOnlyMode ? (
                     <Input id="role" value={formData.role} disabled className="mt-1.5 bg-muted/50"/>
                 ) : (
                     <Select value={formData.role || "STAFF"} onValueChange={(value) => setFormData({ ...formData, role: value })}>
                         <SelectTrigger id="role" className={`mt-1.5 ${formErrors.role ? 'border-destructive' : ''}`}><SelectValue placeholder="Chọn vai trò *" /></SelectTrigger>
                         <SelectContent>
                             <SelectItem value="STAFF">Nhân viên (STAFF)</SelectItem>
-                            <SelectItem value="MANAGER">Quản lý (MANAGER)</SelectItem>
-                            <SelectItem value="ADMIN">Quản trị viên (ADMIN)</SelectItem>
+                            {isAdmin && <SelectItem value="MANAGER">Quản lý (MANAGER)</SelectItem>}
+                            {isAdmin && <SelectItem value="ADMIN">Quản trị viên (ADMIN)</SelectItem>}
                         </SelectContent>
                     </Select>
                 )}
                 {formErrors.role && !editingId && <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.role}</p>}
                </div>
                
-               {/* Chỉ hiện mật khẩu khi tạo mới */}
-               {!editingId && (
+               {/* Mật khẩu: Chỉ hiện khi tạo mới và không phải chế độ xem */}
+               {!editingId && !isViewOnlyMode && (
                    <div>
-                    <Label htmlFor="password" className={`text-xs ${formErrors.password ? 'text-destructive' : 'text-muted-foreground'}`}>Mật khẩu * (Tối thiểu 6 ký tự)</Label>
+                    <Label htmlFor="password" className={`text-xs ${formErrors.password ? 'text-destructive' : 'text-muted-foreground'}`}>Mật khẩu *</Label>
                     <Input id="password" placeholder="Nhập mật khẩu" type="password" value={formData.password || ""} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className={`mt-1.5 ${formErrors.password ? 'border-destructive' : ''}`}/>
                     {formErrors.password && <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.password}</p>}
                    </div>
@@ -390,14 +463,16 @@ export function EmployeeManagement() {
             {/* Chỉ hiện checkbox Active khi sửa */}
             {editingId && (
                <div className="flex items-center gap-2">
-                   <Checkbox id="empActiveForm" checked={formData.active} onCheckedChange={(checked) => setFormData({ ...formData, active: Boolean(checked) })}/>
+                   <Checkbox id="empActiveForm" disabled={isViewOnlyMode} checked={formData.active} onCheckedChange={(checked) => setFormData({ ...formData, active: Boolean(checked) })}/>
                    <Label htmlFor="empActiveForm" className="text-sm">Đang hoạt động</Label>
                </div>
             )}
             
             <div className="flex gap-3 pt-3 border-t">
-              <Button onClick={handleSubmit} className="flex-1">{editingId ? "Cập nhật nhân viên" : "Tạo mới nhân viên"}</Button>
-              <Button variant="outline" onClick={resetForm} className="flex-1">Hủy</Button>
+              <Button onClick={handleSubmit} className="flex-1" variant={isViewOnlyMode ? "secondary" : "default"}>
+                  {isViewOnlyMode ? "Đóng" : (editingId ? "Cập nhật nhân viên" : "Tạo mới nhân viên")}
+              </Button>
+              {!isViewOnlyMode && <Button variant="outline" onClick={resetForm} className="flex-1">Hủy</Button>}
             </div>
           </CardContent>
         </Card>
@@ -406,7 +481,6 @@ export function EmployeeManagement() {
       {/* --- Bảng Danh sách Nhân viên --- */}
       <Card className="shadow-sm">
         <CardHeader>
-          {/* CẬP NHẬT: Hiển thị số lượng bản ghi */}
           <CardTitle className="text-xl font-semibold">Danh sách nhân viên ({totalEmployees})</CardTitle>
           <Tabs value={filterStatus} onValueChange={handleTabChange} className="mt-4">
             <TabsList className="grid w-full grid-cols-3 md:w-[400px]">
@@ -439,7 +513,9 @@ export function EmployeeManagement() {
                       </tr>
                     </thead>
                     <tbody>
-                      {employees.map((employee) => (
+                      {employees.map((employee) => {
+                        const canEdit = canModifyUser(employee.role);
+                        return (
                         <tr key={employee.id} className={`border-b last:border-b-0 hover:bg-muted/20 transition-colors ${!employee.active ? 'opacity-60 bg-gray-50 dark:bg-gray-900/30' : ''}`}>
                           <td className="py-2 px-3 font-medium text-foreground">{employee.name}</td>
                           <td className="py-2 px-3 text-muted-foreground text-xs">
@@ -456,20 +532,28 @@ export function EmployeeManagement() {
                           </td>
                           <td className="py-2 px-3">
                              <div className="flex gap-1.5 justify-center">
-                              <Button variant="outline" size="icon" className="w-7 h-7" title="Sửa" onClick={() => handleEdit(employee)}><Edit2 size={14} /></Button>
+                              {canEdit ? (
+                                  <Button variant="outline" size="icon" className="w-7 h-7" title="Sửa" onClick={() => handleEdit(employee, false)}><Edit2 size={14} /></Button>
+                              ) : (
+                                  <Button variant="ghost" size="icon" className="w-7 h-7" title="Chi tiết" onClick={() => handleEdit(employee, true)}><Eye size={14} /></Button>
+                              )}
+
                               {employee.active ? (
-                                <Button variant="outline" size="icon" className="w-7 h-7 text-destructive border-destructive hover:bg-destructive/10" title="Ngừng hoạt động" onClick={() => setDialogState({ isOpen: true, action: 'delete', employee: employee })}>
-                                  <Trash2 size={14} />
-                                </Button>
+                                canEdit && (
+                                    <Button variant="outline" size="icon" className="w-7 h-7 text-destructive border-destructive hover:bg-destructive/10" title="Ngừng hoạt động" onClick={() => setDialogState({ isOpen: true, action: 'delete', employee: employee })}>
+                                      <Trash2 size={14} />
+                                    </Button>
+                                )
                               ) : (
                                 <>
-                                  <Button variant="outline" size="icon" className="w-7 h-7 text-green-600 border-green-600 hover:bg-green-100/50" title="Kích hoạt lại" onClick={() => setDialogState({ isOpen: true, action: 'reactivate', employee: employee })}>
-                                    <RotateCcw size={14} /> 
-                                  </Button>
-                                  
-                                  {employee.activityCount === 0 && (
+                                  {canEdit && (
+                                      <Button variant="outline" size="icon" className="w-7 h-7 text-green-600 border-green-600 hover:bg-green-100/50" title="Kích hoạt lại" onClick={() => setDialogState({ isOpen: true, action: 'reactivate', employee: employee })}>
+                                        <RotateCcw size={14} /> 
+                                      </Button>
+                                  )}
+                                  {employee.activityCount === 0 && canHardDelete() && (
                                      <Button variant="outline" size="icon" className="w-7 h-7 text-red-700 border-red-700 hover:bg-red-100/50 dark:text-red-500 dark:border-red-500 dark:hover:bg-red-900/30" title="XÓA VĨNH VIỄN" onClick={() => setDialogState({ isOpen: true, action: 'permanentDelete', employee: employee })}>
-                                             <XCircle size={14} />
+                                                <XCircle size={14} />
                                      </Button>
                                   )}
                                 </>
@@ -477,7 +561,7 @@ export function EmployeeManagement() {
                              </div>
                           </td>
                         </tr>
-                      ))}
+                      )})}
                     </tbody>
                   </table>
                 </div>
@@ -486,7 +570,7 @@ export function EmployeeManagement() {
             )}
         </CardContent>
 
-        {/* THÊM: Dialog Xác nhận */}
+        {/* Dialog Xác nhận */}
         <AlertDialog open={dialogState.isOpen} onOpenChange={(open) => !open && closeDialog()}>
           <AlertDialogContent>
             <AlertDialogHeader>

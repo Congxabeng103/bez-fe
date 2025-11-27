@@ -158,6 +158,7 @@ export function Profile() {
 
     const nameRegex = /^[\p{L}\s]+$/u; 
 
+    // --- VALIDATE CLIENT (GIỮ NGUYÊN) ---
     // Tên: Bắt buộc
     if (!formData.firstName.trim()) {
         newErrors.firstName = "Tên là bắt buộc"; hasError = true;
@@ -172,7 +173,7 @@ export function Profile() {
         newErrors.lastName = "Họ không hợp lệ"; hasError = true;
     }
 
-    // SĐT: KHÔNG BẮT BUỘC. Nhưng nếu nhập thì phải đúng.
+    // SĐT: KHÔNG BẮT BUỘC. Nhưng nếu nhập thì phải đúng định dạng.
     const phoneRegex = /(84|0[3|5|7|8|9])+([0-9]{8})\b/;
     if (formData.phone && formData.phone.trim() !== "") {
         if (!phoneRegex.test(formData.phone)) {
@@ -189,12 +190,20 @@ export function Profile() {
         }
     }
 
-    setProfileErrors(newErrors);
-    if (hasError) return; 
+    // Nếu có lỗi Client -> set lỗi và dừng lại
+    if (hasError) {
+        setProfileErrors(newErrors);
+        return; 
+    }
+
+    // Reset lỗi cũ trước khi gọi API
+    setProfileErrors({ firstName: "", lastName: "", phone: "", dob: "" });
     
+    // --- GỌI API ---
     setLoading(true);
     try {
-      // QUAN TRỌNG: Nếu chuỗi rỗng -> gửi null lên server để xóa dữ liệu cũ
+      // QUAN TRỌNG: Chuẩn bị dữ liệu (Giữ nguyên logic của bạn)
+      // Nếu chuỗi rỗng -> gửi null lên server để xóa dữ liệu cũ
       const dataToSubmit = {
         firstName: formData.firstName.trim(),
         lastName: formData.lastName.trim(),
@@ -206,9 +215,34 @@ export function Profile() {
       
       await updateProfile(dataToSubmit);
       toast.success("Cập nhật thông tin thành công!");
+      
+      // Xóa sạch lỗi nếu thành công
+      setProfileErrors({ firstName: "", lastName: "", phone: "", dob: "" });
+
     } catch (err: any) {
-      toast.error(err.message || "Cập nhật thất bại.");
-    } finally { setLoading(false); }
+      const errorMsg = err.message || "Cập nhật thất bại.";
+
+      // --- LOGIC MỚI: BẮT LỖI TỪ BACKEND ---
+      // Kiểm tra xem message lỗi có chứa từ khóa "số điện thoại" hoặc "phone" không
+      if (errorMsg.toLowerCase().includes("số điện thoại") || errorMsg.toLowerCase().includes("phone")) {
+          
+          // 1. Gán lỗi vào state để ô Input Phone hiện viền đỏ + dòng chữ lỗi
+          setProfileErrors(prev => ({
+              ...prev,
+              phone: errorMsg 
+          }));
+          
+          // 2. Toast cảnh báo để user chú ý
+          toast.error("Vui lòng kiểm tra lại số điện thoại.");
+
+      } else {
+          // Các lỗi khác (Lỗi server, lỗi mạng...) thì hiện toast như cũ
+          toast.error(errorMsg);
+      }
+
+    } finally { 
+        setLoading(false); 
+    }
   };
 
 

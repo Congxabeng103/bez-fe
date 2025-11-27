@@ -4,7 +4,7 @@ import React, { useState, useEffect, Suspense, useRef } from "react";
 import Image from "next/image";
 import { ShoppingCart, Heart, Loader2, Check } from "lucide-react"; // Thêm Check icon
 import { useCart } from "@/hooks/use-cart";
-import { useAuthStore } from "@/lib/authStore";
+import ProductReviews from "@/components/store/product-reviews";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation"; // Thêm useRouter
@@ -504,6 +504,7 @@ function ProductDetailContent() {
 
           </div>
         </div>
+        <ProductReviews productId={id} />
       </div>
     </div>
   );

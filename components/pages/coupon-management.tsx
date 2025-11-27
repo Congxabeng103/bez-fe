@@ -61,8 +61,15 @@ interface DialogState {
   coupon: CouponResponse | null;
 }
 
+const getLocalTodayStr = () => {
+  const d = new Date();
+  const offset = d.getTimezoneOffset() * 60000;
+  return new Date(d.getTime() - offset).toISOString().split('T')[0];
+};
+
 // --- Component ---
 export function CouponManagement() {
+
   // --- Lấy user và quyền ---
   const { user } = useAuthStore();
   const roles = user?.roles || [];
@@ -73,7 +80,6 @@ export function CouponManagement() {
   const [coupons, setCoupons] = useState<CouponResponse[]>([]);
   const [couponPage, setCouponPage] = useState(1);
   const [totalCouponPages, setTotalCouponPages] = useState(0);
-  // THÊM: State lưu tổng số bản ghi
   const [totalCoupons, setTotalCoupons] = useState(0);
 
   const [couponSearchTerm, setCouponSearchTerm] = useState("");
@@ -112,10 +118,9 @@ export function CouponManagement() {
     try {
       const result = await manualFetchApi(`/v1/coupons?${query.toString()}`);
       if (result.status === 'SUCCESS' && result.data) {
-        // CẬP NHẬT: Thêm fallback và setTotalCoupons
         setCoupons(result.data.content || []);
         setTotalCouponPages(result.data.totalPages ?? 0);
-        setTotalCoupons(result.data.totalElements ?? 0); // <-- Lấy tổng số bản ghi
+        setTotalCoupons(result.data.totalElements ?? 0);
       } else throw new Error(result.message || "Lỗi tải coupon");
     } catch (err: any) {
       toast.error(`Lỗi tải Coupons: ${err.message}`);
@@ -138,39 +143,37 @@ export function CouponManagement() {
   const validateForm = (): CouponFormErrors => {
     const newErrors: CouponFormErrors = {};
     const { code, discountValue, startDate, endDate, maxDiscountAmount, minOrderAmount, usageLimit, active } = couponFormData;
-
-    // Lấy ngày hôm nay (dạng "YYYY-MM-DD")
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalTodayStr();
 
     if (!code.trim()) {
       newErrors.code = "Mã coupon không được để trống.";
     }
     const discNum = Number(discountValue);
     if (isNaN(discNum) || discNum <= 0 || discNum > 100) {
-      newErrors.discountValue = "Giá trị (%) phải là số lớn hơn 0 và nhỏ hơn hoặc bằng 100.";
+      newErrors.discountValue = "Giá trị (%) phải > 0 và <= 100.";
     }
     if (!startDate) {
       newErrors.startDate = "Vui lòng chọn ngày bắt đầu.";
     }
     if (!endDate) {
       newErrors.endDate = "Vui lòng chọn ngày kết thúc.";
-    } else if (startDate && startDate > endDate) { 
-      newErrors.endDate = "Ngày kết thúc phải sau hoặc trùng với ngày bắt đầu.";
+    } else if (startDate && startDate > endDate) {
+      newErrors.endDate = "Ngày kết thúc phải sau hoặc trùng ngày bắt đầu.";
     } else if (active && endDate < todayStr) {
-      newErrors.endDate = "Nếu muốn kích hoạt (active), ngày kết thúc không được ở trong quá khứ.";
+      newErrors.endDate = "Coupon đang kích hoạt không được có ngày kết thúc trong quá khứ.";
     }
-    
+
     const maxDiscNum = maxDiscountAmount ? Number(maxDiscountAmount) : null;
     if (maxDiscountAmount && (isNaN(maxDiscNum!) || maxDiscNum! <= 0)) {
-      newErrors.maxDiscountAmount = "Giảm tối đa không hợp lệ (phải là số > 0).";
+      newErrors.maxDiscountAmount = "Giảm tối đa phải là số > 0.";
     }
     const minOrderNum = minOrderAmount ? Number(minOrderAmount) : null;
     if (minOrderAmount && (isNaN(minOrderNum!) || minOrderNum! < 0)) {
-      newErrors.minOrderAmount = "Đơn tối thiểu không hợp lệ (phải là số >= 0).";
+      newErrors.minOrderAmount = "Đơn tối thiểu phải là số >= 0.";
     }
     const usageNum = usageLimit ? Number(usageLimit) : null;
     if (usageLimit && (isNaN(usageNum!) || usageNum! < 1)) {
-      newErrors.usageLimit = "Giới hạn lượt dùng phải là số nguyên >= 1.";
+      newErrors.usageLimit = "Giới hạn lượt dùng phải >= 1.";
     }
     return newErrors;
   }
@@ -227,7 +230,6 @@ export function CouponManagement() {
     }
   };
 
-  // Mở form Sửa
   const handleEditCoupon = (coupon: CouponResponse) => {
     if (!canEdit) {
       toast.error("Bạn không có quyền sửa.");
@@ -247,7 +249,6 @@ export function CouponManagement() {
     setFormErrors({});
   };
 
-  // Đổi Tab
   const handleTabChange = (newStatus: string) => {
     setFilterStatus(newStatus);
     setCouponPage(1);
@@ -256,7 +257,6 @@ export function CouponManagement() {
   };
 
   // --- Logic Dialog Xác nhận ---
-  
   const closeDialog = () => {
     setDialogState({ isOpen: false, action: null, coupon: null });
   };
@@ -276,13 +276,12 @@ export function CouponManagement() {
           toast.success("Đã ngừng hoạt động coupon.");
           fetchCoupons();
         } else throw new Error(result.message || "Ngừng hoạt động thất bại");
-      } 
-      
+      }
+
       else if (action === 'reactivate') {
-        const todayStr = new Date().toISOString().split('T')[0];
-        
+        const todayStr = getLocalTodayStr();
         if (coupon.endDate < todayStr) {
-          toast.error(`Kích hoạt thất bại: Coupon "${coupon.code}" đã hết hạn vào ngày ${coupon.endDate}.`);
+          toast.error(`Kích hoạt thất bại: Coupon đã hết hạn vào ngày ${coupon.endDate}.`);
           toast.info("Vui lòng bấm 'Sửa' (Edit) để gia hạn ngày kết thúc trước.");
           closeDialog();
           return;
@@ -301,13 +300,19 @@ export function CouponManagement() {
           toast.success("Kích hoạt lại coupon thành công!");
           fetchCoupons();
         } else throw new Error(result.message || "Kích hoạt thất bại");
-      } 
-      
+      }
+
       else if (action === 'permanentDelete') {
+        // --- LOGIC PHÂN QUYỀN: CHẶN MANAGER ---
+        if (!isAdmin) {
+          toast.error("Chỉ Admin mới có quyền xóa vĩnh viễn!");
+          closeDialog();
+          return;
+        }
         if (coupon.usedCount > 0) {
-           toast.error("Không thể xóa vĩnh viễn coupon đã có lượt dùng.");
-           closeDialog();
-           return;
+          toast.error("Không thể xóa vĩnh viễn coupon đã có lượt dùng.");
+          closeDialog();
+          return;
         }
         const result = await manualFetchApi(`/v1/coupons/permanent-delete/${coupon.id}`, { method: "DELETE" });
         if (result.status === 'SUCCESS') {
@@ -318,7 +323,7 @@ export function CouponManagement() {
     } catch (err: any) {
       toast.error(`Lỗi: ${err.message}`);
     } finally {
-      closeDialog(); 
+      closeDialog();
     }
   };
 
@@ -326,7 +331,7 @@ export function CouponManagement() {
   // --- JSX ---
   return (
     <div className="p-4 sm:p-6 space-y-6">
-      {/* Tiêu đề và nút Thêm Coupon */}
+      {/* Tiêu đề */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Quản lý Coupons</h1>
@@ -346,105 +351,104 @@ export function CouponManagement() {
             <CardTitle className="text-lg font-semibold">{editingCouponId ? "Chỉnh sửa Coupon" : "Thêm Coupon mới"}</CardTitle>
           </CardHeader>
           <CardContent className="pt-6 space-y-4">
-            
+
             {apiError && (
               <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md border border-destructive/30 animate-shake">
                 {apiError}
               </div>
             )}
 
+            {/* Row 1: Code & Discount */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Mã Coupon */}
-              <div>
+              <div className="space-y-2">
+                <Label htmlFor="couponCode">Mã Coupon <span className="text-destructive">*</span></Label>
                 <Input
-                  placeholder="Mã Coupon (vd: HELLO20) *"
+                  id="couponCode"
+                  placeholder="VD: HELLO20"
                   value={couponFormData.code}
                   onChange={(e) => setCouponFormData({ ...couponFormData, code: e.target.value.toUpperCase() })}
                   className={formErrors.code ? "border-destructive" : ""}
                 />
-                {formErrors.code && (
-                  <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.code}</p>
-                )}
+                {formErrors.code && <p className="text-xs text-destructive animate-shake">{formErrors.code}</p>}
               </div>
-              
-              {/* Giá trị giảm */}
-              <div>
+
+              <div className="space-y-2">
+                <Label htmlFor="couponDiscount">Giá trị giảm (%) <span className="text-destructive">*</span></Label>
                 <Input
-                  placeholder="Giá trị giảm (%) *"
+                  id="couponDiscount"
+                  placeholder="0 - 100"
                   type="number"
                   value={couponFormData.discountValue}
                   min="0.01" max="100" step="0.01"
                   onChange={(e) => setCouponFormData({ ...couponFormData, discountValue: e.target.value })}
                   className={formErrors.discountValue ? "border-destructive" : ""}
                 />
-                {formErrors.discountValue && (
-                  <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.discountValue}</p>
-                )}
+                {formErrors.discountValue && <p className="text-xs text-destructive animate-shake">{formErrors.discountValue}</p>}
               </div>
             </div>
 
+            {/* Row 2: Max Discount & Min Order */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Giảm tối đa */}
-              <div>
+              <div className="space-y-2">
+                <Label htmlFor="maxDiscount">Giảm tối đa (₫)</Label>
                 <Input
-                  placeholder="Giảm tối đa (₫) (Để trống = không giới hạn)"
+                  id="maxDiscount"
+                  placeholder="Để trống = Không giới hạn"
                   type="number"
                   value={couponFormData.maxDiscountAmount ?? ""}
                   min="1"
                   onChange={(e) => setCouponFormData({ ...couponFormData, maxDiscountAmount: e.target.value || null })}
                   className={formErrors.maxDiscountAmount ? "border-destructive" : ""}
                 />
-                {formErrors.maxDiscountAmount && (
-                  <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.maxDiscountAmount}</p>
-                )}
+                {formErrors.maxDiscountAmount && <p className="text-xs text-destructive animate-shake">{formErrors.maxDiscountAmount}</p>}
               </div>
-              
-              {/* Đơn tối thiểu */}
-              <div>
+
+              <div className="space-y-2">
+                <Label htmlFor="minOrder">Đơn tối thiểu (₫)</Label>
                 <Input
-                  placeholder="Đơn tối thiểu (₫) (Để trống = không yêu cầu)"
+                  id="minOrder"
+                  placeholder="Để trống = Không yêu cầu"
                   type="number"
                   value={couponFormData.minOrderAmount ?? ""}
                   min="0"
                   onChange={(e) => setCouponFormData({ ...couponFormData, minOrderAmount: e.target.value || null })}
                   className={formErrors.minOrderAmount ? "border-destructive" : ""}
                 />
-                {formErrors.minOrderAmount && (
-                  <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.minOrderAmount}</p>
-                )}
+                {formErrors.minOrderAmount && <p className="text-xs text-destructive animate-shake">{formErrors.minOrderAmount}</p>}
               </div>
             </div>
 
+            {/* Row 3: Usage Limit & Description */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Giới hạn lượt dùng */}
-              <div>
+              <div className="space-y-2">
+                <Label htmlFor="usageLimit">Giới hạn lượt dùng</Label>
                 <Input
-                  placeholder="Giới hạn lượt dùng (Để trống = không giới hạn)"
+                  id="usageLimit"
+                  placeholder="Để trống = Không giới hạn"
                   type="number"
                   value={couponFormData.usageLimit ?? ""}
                   min="1"
                   onChange={(e) => setCouponFormData({ ...couponFormData, usageLimit: e.target.value || null })}
                   className={formErrors.usageLimit ? "border-destructive" : ""}
                 />
-                {formErrors.usageLimit && (
-                  <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.usageLimit}</p>
-                )}
+                {formErrors.usageLimit && <p className="text-xs text-destructive animate-shake">{formErrors.usageLimit}</p>}
               </div>
-              
-              {/* Mô tả */}
-              <div>
+
+              <div className="space-y-2">
+                <Label htmlFor="description">Mô tả</Label>
                 <Input
-                  placeholder="Mô tả (tùy chọn)"
+                  id="description"
+                  placeholder="Mô tả ngắn gọn về coupon..."
                   value={couponFormData.description}
                   onChange={(e) => setCouponFormData({ ...couponFormData, description: e.target.value })}
                 />
               </div>
             </div>
 
+            {/* Row 4: Dates */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Ngày bắt đầu */}
-              <div>
-                <Label htmlFor="couponStartDate" className={`text-xs ${formErrors.startDate ? 'text-destructive' : 'text-muted-foreground'}`}>Ngày bắt đầu *</Label>
+              <div className="space-y-2">
+                <Label htmlFor="couponStartDate" className={formErrors.startDate ? 'text-destructive' : ''}>Ngày bắt đầu <span className="text-destructive">*</span></Label>
                 <Input
                   id="couponStartDate"
                   type="date"
@@ -452,14 +456,11 @@ export function CouponManagement() {
                   onChange={(e) => setCouponFormData({ ...couponFormData, startDate: e.target.value })}
                   className={formErrors.startDate ? "border-destructive" : ""}
                 />
-                {formErrors.startDate && (
-                  <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.startDate}</p>
-                )}
+                {formErrors.startDate && <p className="text-xs text-destructive animate-shake">{formErrors.startDate}</p>}
               </div>
-              
-              {/* Ngày kết thúc */}
-              <div>
-                <Label htmlFor="couponEndDate" className={`text-xs ${formErrors.endDate ? 'text-destructive' : 'text-muted-foreground'}`}>Ngày kết thúc *</Label>
+
+              <div className="space-y-2">
+                <Label htmlFor="couponEndDate" className={formErrors.endDate ? 'text-destructive' : ''}>Ngày kết thúc <span className="text-destructive">*</span></Label>
                 <Input
                   id="couponEndDate"
                   type="date"
@@ -467,18 +468,16 @@ export function CouponManagement() {
                   onChange={(e) => setCouponFormData({ ...couponFormData, endDate: e.target.value })}
                   className={formErrors.endDate ? "border-destructive" : ""}
                 />
-                {formErrors.endDate && (
-                  <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.endDate}</p>
-                )}
+                {formErrors.endDate && <p className="text-xs text-destructive animate-shake">{formErrors.endDate}</p>}
               </div>
             </div>
-            
-            <div className="flex items-center gap-2">
+
+            <div className="flex items-center gap-2 pt-2">
               <Checkbox id="couponActiveForm" checked={couponFormData.active} onCheckedChange={(checked) => setCouponFormData({ ...couponFormData, active: Boolean(checked) })} />
-              <Label htmlFor="couponActiveForm" className="text-sm">Kích hoạt coupon này</Label>
+              <Label htmlFor="couponActiveForm" className="text-sm cursor-pointer">Kích hoạt coupon này ngay sau khi lưu</Label>
             </div>
-            
-            <div className="flex gap-3 pt-3 border-t">
+
+            <div className="flex gap-3 pt-3 border-t mt-2">
               <Button onClick={handleCouponSubmit} className="flex-1">{editingCouponId ? "Cập nhật" : "Lưu"} coupon</Button>
               <Button variant="outline" onClick={resetCouponForm} className="flex-1">Hủy</Button>
             </div>
@@ -489,7 +488,6 @@ export function CouponManagement() {
       {/* --- Danh sách Coupons --- */}
       <Card className="shadow-sm">
         <CardHeader>
-          {/* CẬP NHẬT: Hiển thị số lượng bản ghi */}
           <CardTitle className="text-xl font-semibold">Danh sách Coupons ({totalCoupons})</CardTitle>
           <Tabs value={filterStatus} onValueChange={handleTabChange} className="mt-4">
             <TabsList className="grid w-full grid-cols-3 md:w-[400px]">
@@ -503,7 +501,7 @@ export function CouponManagement() {
             <Input placeholder="Tìm theo mã hoặc mô tả..." value={couponSearchTerm} onChange={(e) => { setCouponSearchTerm(e.target.value); setCouponPage(1); }} className="h-9 text-sm" />
           </div>
         </CardHeader>
-        
+
         <CardContent>
           {isFetchingCoupons ? <div className="text-center py-6 text-muted-foreground animate-pulse">Đang tải...</div> :
             coupons.length === 0 ? <div className="text-center py-6 text-muted-foreground">{couponSearchTerm ? "Không tìm thấy." : `Không có coupon nào (${filterStatus.toLowerCase()}).`}</div> :
@@ -541,38 +539,38 @@ export function CouponManagement() {
                                 {coupon.active ? "Hoạt động" : "Ngừng HĐ"}
                               </span>
                             </td>
-                            
-                            {/* Các nút hành động */}
+
                             {canEdit && (
                               <td className="py-2 px-3">
                                 <div className="flex gap-1.5 justify-center">
                                   <Button variant="outline" size="icon" className="w-7 h-7" title="Sửa" onClick={() => handleEditCoupon(coupon)}><Edit2 size={14} /></Button>
-                                  
+
                                   {coupon.active ? (
-                                    <Button 
-                                      variant="outline" size="icon" 
-                                      className="w-7 h-7 text-destructive border-destructive hover:bg-destructive/10" 
-                                      title="Ngừng hoạt động" 
+                                    <Button
+                                      variant="outline" size="icon"
+                                      className="w-7 h-7 text-destructive border-destructive hover:bg-destructive/10"
+                                      title="Ngừng hoạt động"
                                       onClick={() => setDialogState({ isOpen: true, action: 'delete', coupon: coupon })}
                                     >
                                       <Trash2 size={14} />
                                     </Button>
                                   ) : (
                                     <>
-                                      <Button 
-                                        variant="outline" size="icon" 
-                                        className="w-7 h-7 text-green-600 border-green-600 hover:bg-green-100/50" 
-                                        title="Kích hoạt lại" 
+                                      <Button
+                                        variant="outline" size="icon"
+                                        className="w-7 h-7 text-green-600 border-green-600 hover:bg-green-100/50"
+                                        title="Kích hoạt lại"
                                         onClick={() => setDialogState({ isOpen: true, action: 'reactivate', coupon: coupon })}
                                       >
                                         <RotateCcw size={14} />
                                       </Button>
-                                      
-                                      {coupon.usedCount === 0 && (
+
+                                      {/* UI PERMISSION: CHỈ ADMIN & CHƯA CÓ LƯỢT DÙNG MỚI THẤY NÚT XÓA CỨNG */}
+                                      {isAdmin && coupon.usedCount === 0 && (
                                         <Button
                                           variant="outline" size="icon"
                                           className="w-7 h-7 text-red-700 border-red-700 hover:bg-red-100/50 dark:text-red-500 dark:border-red-500 dark:hover:bg-red-900/30"
-                                          title="XÓA VĨNH VIỄN"
+                                          title="XÓA VĨNH VIỄN (Chỉ Admin)"
                                           onClick={() => setDialogState({ isOpen: true, action: 'permanentDelete', coupon: coupon })}
                                         >
                                           <XCircle size={14} />
@@ -593,7 +591,6 @@ export function CouponManagement() {
               )}
         </CardContent>
 
-        {/* === JSX CHO ALERT DIALOG === */}
         <AlertDialog open={dialogState.isOpen} onOpenChange={(open) => !open && closeDialog()}>
           <AlertDialogContent>
             <AlertDialogHeader>
@@ -603,29 +600,24 @@ export function CouponManagement() {
                 {dialogState.action === 'permanentDelete' && "Xác nhận XÓA VĨNH VIỄN?"}
               </AlertDialogTitle>
               <AlertDialogDescription>
-                {dialogState.action === 'delete' && `Bạn có chắc muốn ngừng hoạt động coupon "${dialogState.coupon?.code}"? Coupon này có thể được kích hoạt lại sau.`}
+                {dialogState.action === 'delete' && `Bạn có chắc muốn ngừng hoạt động coupon "${dialogState.coupon?.code}"?`}
                 {dialogState.action === 'reactivate' && `Bạn có chắc muốn kích hoạt lại coupon "${dialogState.coupon?.code}"?`}
                 {dialogState.action === 'permanentDelete' && (
                   <span className="text-red-600 font-medium dark:text-red-400">
-                    Hành động này KHÔNG THỂ hoàn tác. Coupon "{dialogState.coupon?.code}" sẽ bị xóa vĩnh viễn khỏi cơ sở dữ liệu.
+                    Hành động này KHÔNG THỂ hoàn tác. Coupon "{dialogState.coupon?.code}" sẽ bị xóa vĩnh viễn.
                   </span>
                 )}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel onClick={closeDialog}>Hủy</AlertDialogCancel>
-              
               <AlertDialogAction asChild>
                 <Button
                   onClick={handleConfirmAction}
-                  variant={
-                    (dialogState.action === 'delete' || dialogState.action === 'permanentDelete') 
-                    ? "destructive" 
-                    : "default"
-                  }
+                  variant={(dialogState.action === 'delete' || dialogState.action === 'permanentDelete') ? "destructive" : "default"}
                 >
-                  {dialogState.action === 'delete' && "Xác nhận ngừng HĐ"}
-                  {dialogState.action === 'reactivate' && "Xác nhận kích hoạt"}
+                  {dialogState.action === 'delete' && "Ngừng HĐ"}
+                  {dialogState.action === 'reactivate' && "Kích hoạt"}
                   {dialogState.action === 'permanentDelete' && "Xóa vĩnh viễn"}
                 </Button>
               </AlertDialogAction>

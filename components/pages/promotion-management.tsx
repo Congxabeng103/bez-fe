@@ -56,18 +56,26 @@ interface DialogState {
   promotion: PromotionResponse | null;
 }
 
+const getLocalTodayStr = () => {
+  const d = new Date();
+  const offset = d.getTimezoneOffset() * 60000; 
+  return new Date(d.getTime() - offset).toISOString().split('T')[0];
+};
+
 // --- Component ---
 export function PromotionManagement() {
+
   // --- Lấy user và quyền ---
   const { user } = useAuthStore();
   const roles = user?.roles || [];
   const canEdit = roles.includes("ADMIN") || roles.includes("MANAGER");
+  // THÊM: Biến kiểm tra Admin
+  const isAdmin = roles.includes("ADMIN");
 
   // --- States ---
   const [promotions, setPromotions] = useState<PromotionResponse[]>([]);
   const [promotionPage, setPromotionPage] = useState(1);
   const [totalPromotionPages, setTotalPromotionPages] = useState(0);
-  // THÊM: State lưu tổng số bản ghi
   const [totalPromotions, setTotalPromotions] = useState(0);
 
   const [promotionSearchTerm, setPromotionSearchTerm] = useState("");
@@ -105,10 +113,9 @@ export function PromotionManagement() {
     try {
       const result = await manualFetchApi(`/v1/promotions?${query.toString()}`);
       if (result.status === 'SUCCESS' && result.data) {
-        // CẬP NHẬT: Thêm fallback và setTotalPromotions
         setPromotions(result.data.content || []); 
         setTotalPromotionPages(result.data.totalPages ?? 0);
-        setTotalPromotions(result.data.totalElements ?? 0); // <-- Lấy tổng số bản ghi
+        setTotalPromotions(result.data.totalElements ?? 0);
       } else throw new Error(result.message || "Lỗi tải khuyến mãi");
     } catch (err: any) {
       toast.error(`Lỗi tải Khuyến mãi (%): ${err.message}`);
@@ -131,7 +138,7 @@ export function PromotionManagement() {
     const newErrors: PromotionFormErrors = {};
     const { name, discountValue, startDate, endDate, active } = promotionFormData;
 
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalTodayStr();
 
     if (!name.trim()) {
       newErrors.name = "Tên khuyến mãi không được để trống.";
@@ -218,7 +225,6 @@ export function PromotionManagement() {
   };
 
   // --- Logic Dialog Xác nhận ---
-  
   const closeDialog = () => {
     setDialogState({ isOpen: false, action: null, promotion: null });
   };
@@ -237,7 +243,7 @@ export function PromotionManagement() {
 
       // 2. Kích hoạt lại
       else if (action === 'reactivate') {
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = getLocalTodayStr();
         if (promotion.endDate < todayStr) {
           toast.error(`Kích hoạt thất bại: Khuyến mãi "${promotion.name}" đã hết hạn.`);
           toast.info("Vui lòng bấm 'Sửa' (Edit) để gia hạn ngày kết thúc trước.");
@@ -258,10 +264,17 @@ export function PromotionManagement() {
 
       // 3. Xóa vĩnh viễn
       else if (action === 'permanentDelete') {
+        // --- LOGIC MỚI: CHẶN MANAGER ---
+        if (!isAdmin) {
+          toast.error("Chỉ Admin mới có quyền xóa vĩnh viễn!");
+          closeDialog();
+          return;
+        }
+
         if (promotion.productCount > 0) {
-            toast.error("Không thể xóa vĩnh viễn KM đang có sản phẩm áp dụng.");
-            closeDialog();
-            return;
+           toast.error("Không thể xóa vĩnh viễn KM đang có sản phẩm áp dụng.");
+           closeDialog();
+           return;
         }
         const result = await manualFetchApi(`/v1/promotions/permanent-delete/${promotion.id}`, { method: "DELETE" });
         if (result.status === 'SUCCESS') { toast.success("Đã xóa vĩnh viễn khuyến mãi."); fetchPromotions(); }
@@ -307,21 +320,26 @@ export function PromotionManagement() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Tên khuyến mãi */}
-              <div>
+              <div className="space-y-2">
+                <Label htmlFor="promoName">Tên khuyến mãi <span className="text-destructive">*</span></Label>
                 <Input
-                  placeholder="Tên khuyến mãi *"
+                  id="promoName"
+                  placeholder="VD: Giảm giá hè 2024"
                   value={promotionFormData.name}
                   onChange={(e) => setPromotionFormData({ ...promotionFormData, name: e.target.value })}
                   className={formErrors.name ? "border-destructive" : ""}
                 />
                 {formErrors.name && (
-                  <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.name}</p>
+                  <p className="text-xs text-destructive animate-shake">{formErrors.name}</p>
                 )}
               </div>
+              
               {/* Mô tả */}
-              <div>
+              <div className="space-y-2">
+                <Label htmlFor="promoDesc">Mô tả</Label>
                 <Textarea
-                  placeholder="Mô tả (tùy chọn)"
+                  id="promoDesc"
+                  placeholder="Mô tả chi tiết (tùy chọn)"
                   value={promotionFormData.description}
                   onChange={(e) => setPromotionFormData({ ...promotionFormData, description: e.target.value })}
                   className="min-h-[40px] md:min-h-[auto]"
@@ -330,11 +348,12 @@ export function PromotionManagement() {
             </div>
 
             {/* Phần trăm giảm */}
-            <div>
-              <div className="relative mt-1">
+            <div className="space-y-2">
+              <Label htmlFor="promoDiscount">Giá trị giảm (%) <span className="text-destructive">*</span></Label>
+              <div className="relative">
                 <Input
                   id="promoDiscount"
-                  placeholder="vd: 15"
+                  placeholder="VD: 15"
                   type="number"
                   value={promotionFormData.discountValue}
                   min="1" max="100"
@@ -344,14 +363,14 @@ export function PromotionManagement() {
                 <Percent size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               </div>
               {formErrors.discountValue && (
-                <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.discountValue}</p>
+                <p className="text-xs text-destructive animate-shake">{formErrors.discountValue}</p>
               )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Ngày bắt đầu */}
-              <div>
-                <Label htmlFor="promoStartDate" className={`text-xs ${formErrors.startDate ? 'text-destructive' : 'text-muted-foreground'}`}>Ngày bắt đầu *</Label>
+              <div className="space-y-2">
+                <Label htmlFor="promoStartDate" className={formErrors.startDate ? 'text-destructive' : ''}>Ngày bắt đầu <span className="text-destructive">*</span></Label>
                 <Input
                   id="promoStartDate"
                   type="date"
@@ -360,12 +379,12 @@ export function PromotionManagement() {
                   className={formErrors.startDate ? "border-destructive" : ""}
                 />
                 {formErrors.startDate && (
-                  <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.startDate}</p>
+                  <p className="text-xs text-destructive animate-shake">{formErrors.startDate}</p>
                 )}
               </div>
               {/* Ngày kết thúc */}
-              <div>
-                <Label htmlFor="promoEndDate" className={`text-xs ${formErrors.endDate ? 'text-destructive' : 'text-muted-foreground'}`}>Ngày kết thúc *</Label>
+              <div className="space-y-2">
+                <Label htmlFor="promoEndDate" className={formErrors.endDate ? 'text-destructive' : ''}>Ngày kết thúc <span className="text-destructive">*</span></Label>
                 <Input
                   id="promoEndDate"
                   type="date"
@@ -374,18 +393,18 @@ export function PromotionManagement() {
                   className={formErrors.endDate ? "border-destructive" : ""}
                 />
                 {formErrors.endDate && (
-                  <p className="text-xs text-destructive mt-1.5 animate-shake">{formErrors.endDate}</p>
+                  <p className="text-xs text-destructive animate-shake">{formErrors.endDate}</p>
                 )}
               </div>
             </div>
 
             {/* Active Checkbox */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 pt-2">
               <Checkbox id="promoActiveForm" checked={promotionFormData.active} onCheckedChange={(checked) => setPromotionFormData({ ...promotionFormData, active: Boolean(checked) })} />
-              <Label htmlFor="promoActiveForm" className="text-sm">Kích hoạt khuyến mãi này</Label>
+              <Label htmlFor="promoActiveForm" className="text-sm cursor-pointer">Kích hoạt khuyến mãi này ngay</Label>
             </div>
             {/* Nút Form */}
-            <div className="flex gap-3 pt-3 border-t">
+            <div className="flex gap-3 pt-3 border-t mt-2">
               <Button onClick={handlePromotionSubmit} className="flex-1">{editingPromotionId ? "Cập nhật" : "Lưu"} khuyến mãi</Button>
               <Button variant="outline" onClick={resetPromotionForm} className="flex-1">Hủy</Button>
             </div>
@@ -470,8 +489,14 @@ export function PromotionManagement() {
                                         <RotateCcw size={14} />
                                       </Button>
                                       
-                                      {promo.productCount === 0 && (
-                                        <Button variant="outline" size="icon" className="w-7 h-7 text-red-700 border-red-700 hover:bg-red-100/50 dark:text-red-500 dark:border-red-500 dark:hover:bg-red-900/30" title="XÓA VĨNH VIỄN" onClick={() => setDialogState({ isOpen: true, action: 'permanentDelete', promotion: promo })}>
+                                      {/* UI PERMISSION: CHỈ ADMIN & CHƯA CÓ SP ÁP DỤNG MỚI THẤY NÚT XÓA CỨNG */}
+                                      {isAdmin && promo.productCount === 0 && (
+                                        <Button 
+                                            variant="outline" size="icon" 
+                                            className="w-7 h-7 text-red-700 border-red-700 hover:bg-red-100/50 dark:text-red-500 dark:border-red-500 dark:hover:bg-red-900/30" 
+                                            title="XÓA VĨNH VIỄN (Chỉ Admin)" 
+                                            onClick={() => setDialogState({ isOpen: true, action: 'permanentDelete', promotion: promo })}
+                                        >
                                           <XCircle size={14} />
                                         </Button>
                                       )}
@@ -504,7 +529,7 @@ export function PromotionManagement() {
                 {dialogState.action === 'reactivate' && `Bạn có chắc muốn kích hoạt lại KM "${dialogState.promotion?.name}"?`}
                 {dialogState.action === 'permanentDelete' && (
                   <span className="text-red-600 font-medium dark:text-red-400">
-                    Hành động này KHÔNG THỂ hoàn tác. KM " {dialogState.promotion?.name}" sẽ bị xóa vĩnh viễn (vì không còn sản phẩm nào áp dụng).
+                    Hành động này KHÔNG THỂ hoàn tác. KM "{dialogState.promotion?.name}" sẽ bị xóa vĩnh viễn (vì không còn sản phẩm nào áp dụng).
                   </span>
                 )}
               </AlertDialogDescription>
@@ -516,8 +541,8 @@ export function PromotionManagement() {
                   onClick={handleConfirmAction}
                   variant={ (dialogState.action === 'delete' || dialogState.action === 'permanentDelete') ? "destructive" : "default" }
                 >
-                  {dialogState.action === 'delete' && "Xác nhận ngừng HĐ"}
-                  {dialogState.action === 'reactivate' && "Xác nhận kích hoạt"}
+                  {dialogState.action === 'delete' && "Ngừng HĐ"}
+                  {dialogState.action === 'reactivate' && "Kích hoạt"}
                   {dialogState.action === 'permanentDelete' && "Xóa vĩnh viễn"}
                 </Button>
               </AlertDialogAction>
